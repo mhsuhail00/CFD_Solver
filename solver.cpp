@@ -691,6 +691,350 @@ public:
 
         //END OF TIME LOOP
     }
+    void sip9p(double ap[][np2], double ae[][np2], double as[][np2], double an[][np2], 
+                double aw[][np2], double ase[][np2], double asw[][np2], double ane[][np2], 
+                double anw[][np2], double phi[][np2], double q[][np2]) {
+        
+        // Local arrays for SIP solver
+        double be[np1][np2], bw[np1][np2], bs[np1][np2], bn[np1][np2];
+        double bse[np1][np2], bne[np1][np2], bnw[np1][np2], bsw[np1][np2], bp[np1][np2];
+        double res[np1][np2], qp[np1][np2], del[np1][np2], phio[np1][np2];
+        
+        double tol = 0.75e-2;
+        int maxiter = 100000;
+        double alp = 0.92;
+        
+        // Initialize arrays
+        for (int j = 0; j < n[1]; j++) {
+            for (int i = 0; i < n[0]; i++) {
+                bsw[i][j] = 0.0;
+                bn[i][j] = 0.0;
+                bs[i][j] = 0.0;
+                bse[i][j] = 0.0;
+                bnw[i][j] = 0.0;
+                bne[i][j] = 0.0;
+                be[i][j] = 0.0;
+                bw[i][j] = 0.0;
+                bp[i][j] = 0.0;
+            }
+        }
+        
+        // Forward elimination - compute L and U matrices
+        for (int j = 1; j < n[1]-1; j++) {
+            for (int i = 0; i < n[0]-1; i++) {
+                int inn, ipp;
+                
+                if (i == 0) {
+                    inn = n[0]-2;
+                    ipp = i+1;
+                } else {
+                    inn = i-1;
+                    ipp = i+1;
+                }
+                
+                int jpp = j+1;
+                int jnn = j-1;
+                
+                bsw[i][j] = asw[i][j];
+                
+                bw[i][j] = (aw[i][j] + alp*anw[i][j] - bsw[i][j]*bn[inn][jnn]) / 
+                           (1.0 + alp*bn[inn][j]);
+                
+                bs[i][j] = (as[i][j] + alp*ase[i][j] - bsw[i][j]*be[inn][jnn]) / 
+                           (1.0 + alp*be[i][jnn]);
+                
+                double ad = anw[i][j] + ase[i][j] - bs[i][j]*be[i][jnn] - bw[i][j]*bn[inn][j];
+                
+                bp[i][j] = ap[i][j] - alp*ad - bs[i][j]*bn[i][jnn] - bw[i][j]*be[inn][j] - 
+                           bsw[i][j]*bne[inn][jnn];
+                
+                bn[i][j] = (an[i][j] + alp*anw[i][j] - alp*bw[i][j]*bn[inn][j] - 
+                           bw[i][j]*bne[inn][j]) / bp[i][j];
+                
+                be[i][j] = (ae[i][j] + alp*ase[i][j] - alp*bs[i][j]*be[i][jnn] - 
+                           bs[i][j]*bne[i][jnn]) / bp[i][j];
+                
+                bne[i][j] = ane[i][j] / bp[i][j];
+                
+                // Handle periodic boundary condition
+                if (i == 0) {
+                    bsw[n[0]-1][j] = bsw[i][j];
+                    bn[n[0]-1][j] = bn[i][j];
+                    bs[n[0]-1][j] = bs[i][j];
+                    bse[n[0]-1][j] = bse[i][j];
+                    bnw[n[0]-1][j] = bnw[i][j];
+                    bne[n[0]-1][j] = bne[i][j];
+                    be[n[0]-1][j] = be[i][j];
+                    bw[n[0]-1][j] = bw[i][j];
+                    bp[n[0]-1][j] = bp[i][j];
+                }
+            }
+        }
+        
+        // Initialize qp and del arrays
+        for (int j = 0; j < n[1]; j++) {
+            for (int i = 0; i < n[0]; i++) {
+                qp[i][j] = 0.0;
+                del[i][j] = 0.0;
+            }
+        }
+        
+        // Main iteration loop
+        for (int iter = 0; iter < maxiter; iter++) {
+            
+            // Store old phi values
+            for (int i = 0; i < n[0]; i++) {
+                for (int j = 0; j < n[1]; j++) {
+                    phio[i][j] = phi[i][j];
+                }
+            }
+            
+            double ssum = 0.0;
+            
+            // Forward sweep - compute residual and qp
+            for (int j = 1; j < n[1]-1; j++) {
+                for (int i = 0; i < n[0]-1; i++) {
+                    int inn, ipp;
+                    
+                    if (i == 0) {
+                        inn = n[0]-2;
+                        ipp = i+1;
+                    } else {
+                        inn = i-1;
+                        ipp = i+1;
+                    }
+                    
+                    int jpp = j+1;
+                    int jnn = j-1;
+                    
+                    // Compute residual
+                    res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
+                                an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
+                                aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
+                                ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
+                                ase[i][j]*phi[ipp][jnn];
+                    
+                    ssum += abs(res[i][j]);
+                    
+                    // Forward substitution
+                    qp[i][j] = (res[i][j] - bs[i][j]*qp[i][jnn] - bw[i][j]*qp[inn][j] - 
+                               bsw[i][j]*qp[inn][jnn]) / bp[i][j];
+                    
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        res[n[0]-1][j] = res[i][j];
+                        qp[n[0]-1][j] = qp[i][j];
+                    }
+                }
+            }
+            
+            // Normalize residual for convergence check
+            double sumnor, sumav;
+            if (iter == 0) {
+                if (ssum != 0.0) {
+                    sumnor = ssum;
+                } else {
+                    sumnor = 1.0;
+                }
+            }
+            
+            sumav = ssum / sumnor;
+            
+            // Backward sweep - update phi values
+            for (int j = n[1]-2; j >= 1; j--) {
+                for (int i = n[0]-2; i >= 0; i--) {
+                    int inn, ipp;
+                    
+                    if (i == 0) {
+                        inn = n[0]-1;
+                        ipp = i+1;
+                    } else {
+                        inn = i-1;
+                        ipp = i+1;
+                    }
+                    
+                    int jpp = j+1;
+                    int jnn = j-1;
+                    
+                    // Backward substitution
+                    del[i][j] = qp[i][j] - bn[i][j]*del[i][jpp] - be[i][j]*del[ipp][j] - 
+                                bne[i][j]*del[ipp][jpp];
+                    
+                    phi[i][j] = phi[i][j] + del[i][j];
+                    
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        phi[n[0]-1][j] = phi[i][j];
+                    }
+                }
+            }
+            
+            // Check convergence
+            if (sumav < tol) {
+                break;
+            }
+        }
+    }
+
+    void gauss(double ap[][np2], double ae[][np2], double as[][np2], double an[][np2], 
+               double aw[][np2], double ase[][np2], double asw[][np2], double ane[][np2], 
+               double ass[][np2], double assee[][np2], double assww[][np2],
+               double asse[][np2], double assw[][np2], double asee[][np2], double asww[][np2],
+               double ann[][np2], double annee[][np2], double annww[][np2], double anne[][np2], 
+               double annw[][np2], double anee[][np2], double anww[][np2], double aee[][np2], 
+               double aww[][np2], double phi[][np2], double q[][np2]) {
+        
+        double res[np1][np2], phio[np1][np2];
+        double tol = 0.75e-2;
+        int maxiter = 100000;
+        
+        for (int iter = 0; iter < maxiter; iter++) {
+            
+            // Store old phi values
+            for (int i = 0; i < n[0]; i++) {
+                for (int j = 0; j < n[1]; j++) {
+                    phio[i][j] = phi[i][j];
+                }
+            }
+            
+            double ssum = 0.0;
+            
+            // Compute residual
+            for (int j = 1; j < n[1]-1; j++) {
+                for (int i = 0; i < n[0]-1; i++) {
+                    int inn = i-1;
+                    int inn2 = i-2;
+                    int ipp = i+1;
+                    int ipp2 = i+2;
+                    
+                    int jpp = j+1;
+                    int jpp2 = j+2;
+                    int jnn = j-1;
+                    int jnn2 = j-2;
+                    
+                    // Handle periodic boundary conditions
+                    if (i == 0) {
+                        inn = n[0]-2;
+                        inn2 = n[0]-3;
+                    }
+                    
+                    if (i == 1) {
+                        inn2 = n[0]-2;
+                    }
+                    
+                    if (i == n[0]-2) {
+                        ipp2 = 1;
+                    }
+                    
+                    // Compute residual based on order
+                    if (j == 1 || j == n[1]-2) {
+                        // Second order stencil
+                        res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
+                                    an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
+                                    aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
+                                    ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
+                                    ase[i][j]*phi[ipp][jnn];
+                    } else {
+                        // Fourth order stencil
+                        res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
+                                    an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
+                                    aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
+                                    ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
+                                    ase[i][j]*phi[ipp][jnn] - aee[i][j]*phi[ipp2][j] - 
+                                    aww[i][j]*phi[inn2][j] - annee[i][j]*phi[ipp2][jpp2] - 
+                                    anee[i][j]*phi[ipp2][jpp] - asee[i][j]*phi[ipp2][jnn] - 
+                                    assee[i][j]*phi[ipp2][jnn2] - anne[i][j]*phi[ipp][jpp2] - 
+                                    asse[i][j]*phi[ipp][jnn2] - annw[i][j]*phi[inn][jpp2] - 
+                                    assw[i][j]*phi[inn][jnn2] - annww[i][j]*phi[inn2][jpp2] - 
+                                    anww[i][j]*phi[inn2][jpp] - asww[i][j]*phi[inn2][jnn] - 
+                                    assww[i][j]*phi[inn2][jnn2] - ann[i][j]*phi[i][jpp2] - 
+                                    ass[i][j]*phi[i][jnn2];
+                    }
+                    
+                    ssum += abs(res[i][j]);
+                    
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        res[n[0]-1][j] = res[i][j];
+                    }
+                }
+            }
+            
+            // Normalize residual for convergence check
+            double sumnor, sumav;
+            if (iter == 0) {
+                if (ssum != 0.0) {
+                    sumnor = ssum;
+                } else {
+                    sumnor = 1.0;
+                }
+            }
+            
+            sumav = ssum / sumnor;
+            
+            // Update phi values using Gauss-Seidel
+            for (int j = 1; j < n[1]-1; j++) {
+                for (int i = 0; i < n[0]-1; i++) {
+                    int inn = i-1;
+                    int inn2 = i-2;
+                    int ipp = i+1;
+                    int ipp2 = i+2;
+                    
+                    int jpp = j+1;
+                    int jpp2 = j+2;
+                    int jnn = j-1;
+                    int jnn2 = j-2;
+                    
+                    // Handle periodic boundary conditions
+                    if (i == 0) {
+                        inn = n[0]-2;
+                        inn2 = n[0]-3;
+                    }
+                    
+                    if (i == 1) {
+                        inn2 = n[0]-2;
+                    }
+                    
+                    if (i == n[0]-2) {
+                        ipp2 = 1;
+                    }
+                    
+                    // Update phi based on order
+                    if (j == 1 || j == n[1]-2) {
+                        // Second order stencil
+                        phi[i][j] = (q[i][j] - ae[i][j]*phi[ipp][j] - an[i][j]*phi[i][jpp] - 
+                                    as[i][j]*phi[i][jnn] - aw[i][j]*phi[inn][j] - 
+                                    anw[i][j]*phi[inn][jpp] - ane[i][j]*phi[ipp][jpp] - 
+                                    asw[i][j]*phi[inn][jnn] - ase[i][j]*phi[ipp][jnn]) / ap[i][j];
+                    } else {
+                        // Fourth order stencil
+                        phi[i][j] = (q[i][j] - ae[i][j]*phi[ipp][j] - an[i][j]*phi[i][jpp] - 
+                                    as[i][j]*phi[i][jnn] - aw[i][j]*phi[inn][j] - 
+                                    anw[i][j]*phi[inn][jpp] - ane[i][j]*phi[ipp][jpp] - 
+                                    asw[i][j]*phi[inn][jnn] - ase[i][j]*phi[ipp][jnn] - 
+                                    aee[i][j]*phi[ipp2][j] - aww[i][j]*phi[inn2][j] - 
+                                    annee[i][j]*phi[ipp2][jpp2] - anee[i][j]*phi[ipp2][jpp] - 
+                                    asee[i][j]*phi[ipp2][jnn] - assee[i][j]*phi[ipp2][jnn2] - 
+                                    anne[i][j]*phi[ipp][jpp2] - asse[i][j]*phi[ipp][jnn2] - 
+                                    annw[i][j]*phi[inn][jpp2] - assw[i][j]*phi[inn][jnn2] - 
+                                    annww[i][j]*phi[inn2][jpp2] - anww[i][j]*phi[inn2][jpp] - 
+                                    asww[i][j]*phi[inn2][jnn] - assww[i][j]*phi[inn2][jnn2] - 
+                                    ann[i][j]*phi[i][jpp2] - ass[i][j]*phi[i][jnn2]) / ap[i][j];
+                    }
+                    
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        phi[n[0]-1][j] = phi[i][j];
+                    }
+                }
+            }
+            
+            // Check convergence
+            if (sumav < tol) {
+                break;
+            }
+        }
+    }
 
 };
 
