@@ -567,10 +567,6 @@ c         WEST COMPONENT(I-1,J)
        ccw=(dxiy(i,j)/(2.*dxi(1)**2))*(dxiy(i,j)+dxiy(inn,j))
        ddw=(dey(i,j)/(8.*dxi(1)*dxi(2)))*(dxiy(i,jnn)-dxiy(i,jpp))
 
-
-
-
-
        aw(i,j)=aaw+bbw+ccw+ddw
 
 c        NORTH COMPONENT(I,J+1)
