@@ -59,7 +59,7 @@ C     Last change:  ALI  21 Feb 2011    3:09 pm
         dt=0.01e-02
         norm=0
 	MAXSTEP=5000000
-        restart=1
+        restart=0
         eps=1e-2
 	nsnap=0
         maxsnap=100
@@ -70,7 +70,7 @@ C     Last change:  ALI  21 Feb 2011    3:09 pm
          read(2,*)p_grid,a_grid,ar 
 c         READ(2,*)dxi(1),dxi(2)
           READ(2,*)ic1,ic2,ic3,ic4
-
+        
          do j=1,n(2)
           do i=1,n(1)
            read(2,*)aaa,bbb,x(1,i,j),x(2,i,j)
@@ -151,6 +151,7 @@ c       at inner first
         xnixi(i)=dxix(i,j)*xnix(i)+dxiy(i,j)*xniy(i)
         xniet(i)=dex(i,j)*xnix(i)+dey(i,j)*xniy(i)
 
+
         end do
 
         j=n(2)
@@ -158,6 +159,7 @@ c       at inner first
 
         xnoxi(i)=dxix(i,j)*xnox(i)+dxiy(i,j)*xnoy(i)
         xnoet(i)=dex(i,j)*xnox(i)+dey(i,j)*xnoy(i)
+
 
         end do
 
@@ -193,7 +195,7 @@ c---------------------------------------
           U(1,i,j)=uinf
           U(2,i,j)=vinf
           U(3,i,j)=0.0
-          
+
           Uxi(i,j)=0
           Uet(i,j)=0
           P(i,j)=0
@@ -254,9 +256,9 @@ c----------------------------------------------------
 c       APPLYING BOUNDARY CONDITION
 c---------setting boundary conditions----------------
 c---------solid-fluid boundary
-          j=1
-          do k=1,2
-          do i=1,n(1)
+        j=1
+        do k=1,2
+        do i=1,n(1)
 
            IF(k.eq.1)then
             U(k,i,j)=-Speed_amp*x(2,i,j)
@@ -288,7 +290,6 @@ c----------------------------------------------------
 c        inflow dirichlet conditions
 
            u(1,i,j)=uinf
-
            u(2,i,j)=vinf
            u(3,i,j)=0.0
            up(1,i,j)=u(1,i,j)
@@ -812,15 +813,18 @@ c-------------------------------------------------
        qu(i,j)=qu(i,j)-sumu
        sumv=bus(i)*u(2,i,jnn)+buse(i)*u(2,ipp,jnn)+busw(i)*u(2,inn,jnn)
        qv(i,j)=qv(i,j)-sumv
+       
        sumt=bts(i)*u(3,i,jnn)+btse(i)*u(3,ipp,jnn)+btsw(i)*u(3,inn,jnn)
        qt(i,j)=qt(i,j)-sumt
 
        sumu=bus(i)*up(1,i,jnn)+buse(i)*up(1,ipp,jnn)+busw(i)*
      + up(1,inn,jnn)
        qup(i,j)=qup(i,j)-sumu
+
        sumv=bus(i)*up(2,i,jnn)+buse(i)*up(2,ipp,jnn)+busw(i)*
      + up(2,inn,jnn)
        qvp(i,j)=qvp(i,j)-sumv
+
        END if
 
        if (j.eq.n(2)-1) then
@@ -1844,6 +1848,7 @@ C      END OF TIME LOOP
      :-ase(i,j)*phi(ipp,jnn)
 
        SSUM=ssum+ABS(res(i,j))
+c        write(*,*) ssum
 
       qp(i,j)=(res(i,j)-bs(i,j)*qp(i,jnn)-bw(i,j)*qp(inn,j)
      :-bsw(i,j)*qp(inn,jnn))/bp(i,j)
@@ -1866,7 +1871,7 @@ C      END OF TIME LOOP
        endif
        endif
 
-
+c        write(*,*) "Sumnor: ",sumnor
        sumav=ssum/sumnor
 
        do j=n(2)-1,2,-1
@@ -1896,8 +1901,10 @@ C      END OF TIME LOOP
 
        enddo
        enddo
+c        write(*,*) iter, sumav, tol
 
         IF(sumav.lt.tol)GOTO 20
+
 
       END DO
    20  continue
@@ -1985,6 +1992,7 @@ c       forth order
 
         endif
        SSUM=ssum+ABS(res(i,j))
+c        write(*,*) "SSUM: ", SSUM
        if (i.eq.1) then
 
        res(n(1),j)=res(i,j)
@@ -2060,7 +2068,6 @@ c       forth order
 
        enddo
        enddo
-
        IF(sumav.lt.tol)GOTO 20
 
 
