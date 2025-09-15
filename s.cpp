@@ -3,10 +3,73 @@
 #include <cmath>
 #include <string>
 #include <iomanip>
+#include <petscmat.h>
 using namespace std;
 
 int n[2];
 string INPUT_FILE = "INP.DAT";
+
+class Data {
+public:
+    PetscInt n0, n1;  // Note: PetscInt, not PetScInt
+    Mat dxix, dxiy, dex, dey;
+    Mat x_0, x_1;
+    Vec dxi;
+
+    Data(PetscInt n0, PetscInt n1): n0(n0), n1(n1) {
+        PetscErrorCode ierr;
+        
+        // Helper lambda to reduce code duplication
+        auto createMatrix = [&](Mat& mat, PetscInt m, PetscInt n) {
+            ierr = MatCreate(PETSC_COMM_WORLD, &mat); CHKERRQ(ierr);
+            ierr = MatSetSizes(mat, PETSC_DECIDE, PETSC_DECIDE, m, n); CHKERRQ(ierr);
+            ierr = MatSetType(mat, MATMPIAIJ); CHKERRQ(ierr);
+            ierr = MatSetFromOptions(mat); CHKERRQ(ierr);
+            ierr = MatMPIAIJSetPreallocation(mat, 5, NULL, 5, NULL); CHKERRQ(ierr);
+            ierr = MatZeroEntries(mat); CHKERRQ(ierr);
+        };
+
+        // Helper lambda to create a vector
+        auto createVector = [&](Vec& vec, PetscInt m) {
+            ierr = VecCreate(PETSC_COMM_WORLD, &vec); CHKERRQ(ierr);
+            ierr = VecSetSizes(vec, PETSC_DECIDE, m); CHKERRQ(ierr);
+            ierr = VecSetFromOptions(vec); CHKERRQ(ierr);
+            ierr = VecSet(vec, 0.0); CHKERRQ(ierr);  // Initialize with zeros
+        };
+
+
+        createMatrix(dxix, n0, n1);
+        createMatrix(dxiy, n0, n1);
+        createMatrix(dex, n0, n1);
+        createMatrix(dey, n0, n1);
+        createMatrix(x_0, n0, n1);
+        createMatrix(x_1, n0, n1);
+        createVector(dxi, 2);
+    }
+
+    PetscErrorCode read_data() {
+        PetscErrorCode ierr;
+        ifstream input_file(INPUT_FILE);
+        if (!input_file) {
+            cerr << "Error opening input file: " << INPUT_FILE << endl;
+            return PETSC_ERR_FILE_OPEN;
+        }
+
+        PetscInt ic0, ic1, ic2, ic3;
+        PetscDouble p_grid, a_grid, ar;
+
+        return ierr;
+    }
+
+    ~Data() {
+        MatDestroy(&dxix);
+        MatDestroy(&dxiy);
+        MatDestroy(&dex);
+        MatDestroy(&dey);
+        MatDestroy(&x_0);
+        MatDestroy(&x_1);
+    }
+};
 
 class Solver {
 public:
