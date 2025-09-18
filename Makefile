@@ -1,52 +1,44 @@
-# Compiler
-CXX = g++
+# Detect platform
+UNAME_S := $(shell uname -s)
 
-# Compiler standard
-CXXSTD = -std=c++11
+# Source and output
+SRC  = progress.cpp
+EXEC = progress.o
 
-# Source file and executable name
-SRC  = PSolver.cpp
-EXEC = PSolver
-
-# PETSc and MPI paths (corrected for Homebrew installation)
-PETSC_DIR = /opt/homebrew
-MPI_DIR   = /opt/homebrew
-
-# Include and library paths
-INCLUDES = -I$(PETSC_DIR)/include
-LIBPATHS = -L$(PETSC_DIR)/lib
-
-# Libraries to link
-LIBS = -lpetsc -lmpi
-
-# Combined flags
-CXXFLAGS = $(CXXSTD) $(INCLUDES)
-LDFLAGS  = $(LIBPATHS) $(LIBS)
+# Compiler and flags (platform-dependent)
+ifeq ($(UNAME_S), Darwin)  # macOS
+    CXX = g++
+    CXXSTD = -std=c++11
+    PETSC_DIR = /opt/homebrew
+    MPI_DIR   = /opt/homebrew
+    INCLUDES = -I$(PETSC_DIR)/include
+    LIBPATHS = -L$(PETSC_DIR)/lib
+    LIBS = -lpetsc -lmpi
+    CXXFLAGS = $(CXXSTD) $(INCLUDES)
+    LDFLAGS  = $(LIBPATHS) $(LIBS)
+else ifeq ($(UNAME_S), Linux)  # Linux
+    CXX = mpic++
+    CXXFLAGS = $(shell pkg-config --cflags petsc)
+    LDFLAGS  = $(shell pkg-config --libs petsc)
+else
+    $(error Unsupported platform: $(UNAME_S))
+endif
 
 # Build rule
 $(EXEC): $(SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) -o $(EXEC) $(LDFLAGS)
 
-# Alternative rule using MPI compiler wrapper (uncomment if preferred)
-# $(EXEC): $(SRC)
-#	mpicxx $(CXXSTD) $(SRC) -o $(EXEC) -lpetsc
-
-# Test rule to verify PETSc works
-test: test_petsc.cpp
-	$(CXX) $(CXXFLAGS) test_petsc.cpp -o test_petsc $(LDFLAGS)
-	./test_petsc
-
 # Clean rule
 clean:
-	rm -f $(EXEC) test_petsc *.o
+	rm -f $(EXEC) *.o
 
-# Print variables for debugging
+# Debug info
 debug:
+	@echo "Platform: $(UNAME_S)"
 	@echo "CXX: $(CXX)"
 	@echo "CXXFLAGS: $(CXXFLAGS)"
 	@echo "LDFLAGS: $(LDFLAGS)"
 	@echo "PETSC_DIR: $(PETSC_DIR)"
 	@echo "MPI_DIR: $(MPI_DIR)"
 
-# Phony targets
-.PHONY: clean test debug
+.PHONY: clean debug
