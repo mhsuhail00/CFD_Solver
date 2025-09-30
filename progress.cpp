@@ -96,7 +96,7 @@ public:
                 input_file >> val;
                 array0[idx] = val;
 
-                idx = index(0,i,j);
+                idx = index(1,i,j);
                 input_file >> val;
                 array0[idx] = val;
             }

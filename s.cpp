@@ -517,26 +517,26 @@ public:
         input_file >> p_grid >> a_grid >> ar;
         input_file >> ic1 >> ic2 >> ic3 >> ic4;
 
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 input_file >> aaa >> bbb >> x[0][i][j] >> x[1][i][j];
             }
         }
 
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 input_file >> dxix[i][j] >> dxiy[i][j] >> dex[i][j] >> dey[i][j];
             }
         }
 
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 input_file >> alph[i][j] >> beta[i][j] >> gamma[i][j];
             }
         }
 
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 input_file >> ajac[i][j];
             }
         }
@@ -545,15 +545,14 @@ public:
             input_file >> xnix[i] >> xniy[i] >> xnox[i] >> xnoy[i];
         }
 
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 // input_file >> p1[i][j] >> q1[i][j];
                 p1[i][j] = 0.0;
                 q1[i][j] = 0.0;
             }
         }
 
-        // Dead code which is not reachable
         irem = 0;
         n[1] = n[1] - irem;
         if (irem != 0) {
@@ -576,7 +575,6 @@ public:
             i3 = k / 100;
             i2 = (k - 100 * i3) / 10;
             i1 = k - i2 * 10 - i3 * 100;
-            cout << i3 << " " << i2 <<  " "  << i1 <<  "? " << '0' + i3 << endl;
             filnam[k][5] = '0' + i3;
             filnam[k][6] = '0' + i2;
             filnam[k][7] = '0' + i1;
@@ -615,8 +613,8 @@ public:
         if (restart == 0) {
             loop = 1;
             time = 0;
-            for (int j = 0; j < n[1]; j++) {
-                for (int i = 0; i < n[0]; i++) {
+            for (int i = 0; i < n[0]; i++) {
+                for (int j = 0; j < n[1]; j++) {
                     u[0][i][j] = uinf;
                     u[1][i][j] = vinf;
                     u[2][i][j] = 0.0;
@@ -1073,8 +1071,8 @@ public:
             // Convection term
             // k loop starts
             // cout << "Calculating convection term..." << endl;
-            for(int j=1; j<n[1]-1; j++) {
-                for(int i=0; i<n[0]-1; i++) {
+            for(int i=0; i<n[0]-1; i++) {
+                for(int j=1; j<n[1]-1; j++) {
                     if(i==0 || i==1 || i==n[0]-2) {
                         if(i==0) {
                             inn=n[0]-2; // changed inn from 1 to 2
@@ -1249,8 +1247,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qu);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     us[0][i][j] = sol[i][j];
                     if (i == 0) {
                         us[0][n[0]-1][j] = sol[i][j];
@@ -1270,8 +1268,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qv);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     us[1][i][j] = sol[i][j];
                     if (i == 0) {
                         us[1][n[0]-1][j] = sol[i][j];
@@ -1291,8 +1289,8 @@ public:
                 atssww, atsse, atssw, atsee, atsww, atnn, atnnee, atnnww, atnne, atnw,
                 atnee, atnww, atee, atww, sol, qt);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     u[2][i][j] = sol[i][j];
                     if (i == 0) {
                         u[2][n[0]-1][j] = sol[i][j];
@@ -1316,8 +1314,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qup);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     up[0][i][j] = sol[i][j];
                     if (i == 0) {
                         up[0][n[0]-1][j] = sol[i][j];
@@ -1341,8 +1339,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qvp);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     up[1][i][j] = sol[i][j];
                     if (i == 0) {
                         up[1][n[0]-1][j] = sol[i][j];
@@ -1380,16 +1378,14 @@ public:
                     up[0][n[0] - 1][j] = up[0][i][j];
                     up[1][n[0] - 1][j] = up[1][i][j];
                 }
-            }
-
-           
+            }           
 
             // ----------------------------------------------------------
             // calculation of star velocities at i+-1/2 and j+-1/2
             // ----------------------------------------------------------
             // cout << "Calculating star velocities at i+-1/2 and j+-1/2..." << endl;
-            for(int j = 1; j < n[1] - 1; j++) {
-                for(int i = 0; i < n[0] - 1; i++) {
+            for(int i = 0; i < n[0] - 1; i++) {
+                for(int j = 1; j < n[1] - 1; j++) {
                     if (i == 0) {
                         inn = n[0] - 2;
                         ipp = i + 1;
@@ -1631,7 +1627,6 @@ public:
             }
 
             j = n[1] - 1;
-
             for(int i = 0; i < n[0] - 1; i++) {
 
                 vnn = uinf * xnox[i] + vinf * xnoy[i];
@@ -1666,8 +1661,8 @@ public:
             // ========================================================================
             // cout << "Applying momentum equation on inlet and solid boundary..." << endl;
             // obtaining the new uxi and uet
-            for(int j = 0; j < n[1]; j++) {
-                for(int i = 0; i < n[0]; i++) {
+            for(int i = 0; i < n[0]; i++) {
+                for(int j = 0; j < n[1]; j++) {
                     uxi[i][j] = dxix[i][j] * u[0][i][j] + dxiy[i][j] * u[1][i][j];
                     uet[i][j] = dex[i][j] * u[0][i][j] + dey[i][j] * u[1][i][j];
                 }
@@ -1732,7 +1727,6 @@ public:
             // at exit boundary
             // cout << "Applying at exit boundary..." << endl;
             j = n[1] - 1;
-
             for(int i = 0; i < n[0] - 1; i++) {
                 vnn = uinf * xnox[i] + vinf * xnoy[i];
                 if(vnn >= 0) {
@@ -1993,9 +1987,9 @@ public:
                 file1 << "zone" << endl;
                 file1 << "I=" << n[0] << endl;
                 file1 << "J=" << n[1] << endl;
-                
-                for(int j = 0; j < n[1]; j++) {
-                    for(int i = 0; i < n[0]; i++) {
+
+                for(int i = 0; i < n[0]; i++) {
+                    for(int j = 0; j < n[1]; j++) {
                         file1 << fixed << setprecision(9) << x[0][i][j] << " " << x[1][i][j] << " "
                             << scientific << setprecision(13) << u[0][i][j] << " " << u[1][i][j] << " " 
                             << u[2][i][j] << " " << p[i][j] << " " << si[i][j] << " " << vort[i][j] << endl;
@@ -2047,9 +2041,9 @@ public:
                     if (nsnap == (maxsnap + 1)) continue;
 
                     ofstream snap_file(filnam[nsnap-1]);  // Adjust for 0-based array indexing
-                    
-                    for(int j = 0; j < n[1]; j++) {
-                        for(int i = 0; i < n[0]; i++) {
+
+                    for(int i = 0; i < n[0]; i++) {
+                        for(int j = 0; j < n[1]; j++) {
                             snap_file << fixed << setprecision(9) << x[0][i][j] << " " << x[1][i][j] << " "
                                     << scientific << setprecision(5) << si[i][j] << " " 
                                     << u[2][i][j] << " " << vort[i][j] << endl;
@@ -2089,8 +2083,8 @@ public:
         double alp = 0.92;
         
         // Initialize arrays
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 bsw[i][j] = 0.0;
                 bn[i][j] = 0.0;
                 bs[i][j] = 0.0;
@@ -2155,8 +2149,8 @@ public:
         }
         
         // Initialize qp and del arrays
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 qp[i][j] = 0.0;
                 del[i][j] = 0.0;
             }
