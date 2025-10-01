@@ -1269,8 +1269,8 @@ public:
 
             // 'solving v-vel'
             // cout << "Solving v-velocity..." << endl;
-            for(int j = 0; j < n[1]; j++) {
-                for(int i = 0; i < n[0]; i++) {
+            for(int i = 0; i < n[0]; i++) {
+                for(int j = 0; j < n[1]; j++) {
                     sol[i][j] = u[1][i][j];
                 }
             }

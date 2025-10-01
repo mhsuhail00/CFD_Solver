@@ -39,6 +39,8 @@ C     Last change:  ALI  21 Feb 2011    3:09 pm
      :vdotn(np1),uold(3,np1,np2),vort(np1,np2),thi(np1),alc(3)
       REAL*8 Nuss,p_grid,a_grid,ar,aaa,sgn,f_ar
 
+      REAL*8 time_start, time_end, time_elapsed
+
         Ri=0.0
 
         F=0.0
@@ -649,7 +651,7 @@ C----------------------------------------------------------
 c     START OF TIME LOOP
 C----------------------------------------------------------
       DO loop=loop,maxstep
-
+      CALL CPU_TIME(time_start)
       time=time+dt
 c      pause
 C--------FLOW FIELD INSIDE DOMAIN
@@ -1712,6 +1714,11 @@ c================================================================
 	endif
 
       endif
+
+      CALL CPU_TIME(time_end)  ! End timing
+      time_elapsed = (time_end - time_start) * 1000.0
+      WRITE(*, *) loop, '  Time: ', time_elapsed, 'ms'
+      WRITE(*,*)
 
 101    continue
        END DO
