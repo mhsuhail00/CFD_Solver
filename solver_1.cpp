@@ -1,10 +1,13 @@
+// This is optimized wrt Solver.cpp
+// By making use of contigious alloction block of array rows
+// Implemented by changing sequence of nested for loops
+
 #include <iostream>
 #include <fstream>
 #include <cmath>
 #include <string>
 #include <iomanip>
 #include <chrono>
-
 using namespace std;
 
 int n[2];
@@ -501,7 +504,6 @@ public:
     }
 
     Solver() {
-        // Start Timer
         auto start = chrono::high_resolution_clock::now();
 
         // First allocate all arrays
@@ -754,8 +756,8 @@ public:
 
         // forming coeff matrix for velocity
         // cout << "Forming coefficient matrix for velocity..." << endl;
-        for(int j=1;j<n[1]-1;j++){
-            for(int i=0;i<n[0]-1;i++){
+        for(int i=0;i<n[0]-1;i++){
+            for(int j=1;j<n[1]-1;j++){
                 if(i==1){
                     inn = n[0]-1;
                     ipp = i+1;
@@ -946,8 +948,8 @@ public:
  
         // Forming a matrix for Pressure
         // cout << "Forming matrix for pressure..." << endl;
-        for(int j=1; j<n[1]-1; j++) {
-            for(int i=0; i<n[0]-1; i++) {
+        for(int i=0; i<n[0]-1; i++) {
+            for(int j=1; j<n[1]-1; j++) {
                 if(i == 0) {
                     inn = n[0]-2;
                     ipp = i+1;
@@ -1046,7 +1048,7 @@ public:
 
         auto end = chrono::high_resolution_clock::now();
         auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-        cout << "Time taken in Constructor: " << duration.count() << " ms" << endl;
+        cout << "Time taken in Constructor: " << duration.count() << " ms\n" << endl;
 
         // cout << "Initialization complete. Entering time loop..." << endl;
         timeLoop();
@@ -1063,6 +1065,7 @@ public:
         //START OF TIME LOOP
         //----------------------------------------------------------
         // cout << "Starting time loop..." << endl;
+        
         auto start = chrono::high_resolution_clock::now();
         
         // Outer loop
@@ -1083,8 +1086,8 @@ public:
             // Convection term
             // k loop starts
             // cout << "Calculating convection term..." << endl;
-            for(int j=1; j<n[1]-1; j++) {
-                for(int i=0; i<n[0]-1; i++) {
+            for(int i=0; i<n[0]-1; i++) {
+                for(int j=1; j<n[1]-1; j++) {
                     if(i==0 || i==1 || i==n[0]-2) {
                         if(i==0) {
                             inn=n[0]-2; // changed inn from 1 to 2
@@ -1259,8 +1262,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qu);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     us[0][i][j] = sol[i][j];
                     if (i == 0) {
                         us[0][n[0]-1][j] = sol[i][j];
@@ -1280,8 +1283,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qv);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     us[1][i][j] = sol[i][j];
                     if (i == 0) {
                         us[1][n[0]-1][j] = sol[i][j];
@@ -1301,8 +1304,8 @@ public:
                 atssww, atsse, atssw, atsee, atsww, atnn, atnnee, atnnww, atnne, atnw,
                 atnee, atnww, atee, atww, sol, qt);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     u[2][i][j] = sol[i][j];
                     if (i == 0) {
                         u[2][n[0]-1][j] = sol[i][j];
@@ -1326,8 +1329,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qup);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     up[0][i][j] = sol[i][j];
                     if (i == 0) {
                         up[0][n[0]-1][j] = sol[i][j];
@@ -1351,8 +1354,8 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qvp);
 
-            for(int j = 1; j < n[1]-1; j++) {
-                for(int i = 0; i < n[0]-1; i++) {
+            for(int i = 0; i < n[0]-1; i++) {
+                for(int j = 1; j < n[1]-1; j++) {
                     up[1][i][j] = sol[i][j];
                     if (i == 0) {
                         up[1][n[0]-1][j] = sol[i][j];
@@ -1398,8 +1401,8 @@ public:
             // calculation of star velocities at i+-1/2 and j+-1/2
             // ----------------------------------------------------------
             // cout << "Calculating star velocities at i+-1/2 and j+-1/2..." << endl;
-            for(int j = 1; j < n[1] - 1; j++) {
-                for(int i = 0; i < n[0] - 1; i++) {
+            for(int i = 0; i < n[0] - 1; i++) {
+                for(int j = 1; j < n[1] - 1; j++) {
                     if (i == 0) {
                         inn = n[0] - 2;
                         ipp = i + 1;
@@ -1676,8 +1679,8 @@ public:
             // ========================================================================
             // cout << "Applying momentum equation on inlet and solid boundary..." << endl;
             // obtaining the new uxi and uet
-            for(int j = 0; j < n[1]; j++) {
-                for(int i = 0; i < n[0]; i++) {
+            for(int i = 0; i < n[0]; i++) {
+                for(int j = 0; j < n[1]; j++) {
                     uxi[i][j] = dxix[i][j] * u[0][i][j] + dxiy[i][j] * u[1][i][j];
                     uet[i][j] = dex[i][j] * u[0][i][j] + dey[i][j] * u[1][i][j];
                 }
@@ -2075,7 +2078,7 @@ public:
             auto end = chrono::high_resolution_clock::now();
             auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
             start = chrono::high_resolution_clock::now();
-            cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms" << endl;
+            cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms\n" << endl;
 
         }
         //END OF TIME LOOP
@@ -2105,8 +2108,8 @@ public:
         double alp = 0.92;
         
         // Initialize arrays
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 bsw[i][j] = 0.0;
                 bn[i][j] = 0.0;
                 bs[i][j] = 0.0;
@@ -2119,8 +2122,8 @@ public:
             }
         }
         // Forward elimination - compute L and U matrices
-        for (int j = 1; j < n[1]-1; j++) {
-            for (int i = 0; i < n[0]-1; i++) {
+        for (int i = 0; i < n[0]-1; i++) {
+            for (int j = 1; j < n[1]-1; j++) {
                 int inn, ipp;
                 
                 if (i == 0) {
@@ -2171,8 +2174,8 @@ public:
         }
         
         // Initialize qp and del arrays
-        for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
                 qp[i][j] = 0.0;
                 del[i][j] = 0.0;
             }
@@ -2190,8 +2193,8 @@ public:
             double ssum = 0.0;
             
             // Forward sweep - compute residual and qp
-            for (int j = 1; j < n[1]-1; j++) {
-                for (int i = 0; i < n[0]-1; i++) {
+            for (int i = 0; i < n[0]-1; i++) {
+                for (int j = 1; j < n[1]-1; j++) {
                     int inn, ipp;
                     
                     if (i == 0) {
@@ -2242,8 +2245,8 @@ public:
             sumav = ssum / sumnor;
             
             // Backward sweep - update phi values
-            for (int j = n[1]-2; j >= 1; j--) {
-                for (int i = n[0]-2; i >= 0; i--) {
+            for (int i = n[0]-2; i >= 0; i--) {
+                for (int j = n[1]-2; j >= 1; j--) {
                     int inn, ipp;
                     
                     if (i == 0) {
@@ -2319,8 +2322,8 @@ public:
             double ssum = 0.0;
             
             // Compute residual
-            for (int j = 1; j < n[1]-1; j++) {
-                for (int i = 0; i < n[0]-1; i++) {
+            for (int i = 0; i < n[0]-1; i++) {
+                for (int j = 1; j < n[1]-1; j++) {
                     int inn = i-1;
                     int inn2 = i-2;
                     int ipp = i+1;
@@ -2393,8 +2396,8 @@ public:
             sumav = ssum / sumnor;
             
             // Update phi values using Gauss-Seidel
-            for (int j = 1; j < n[1]-1; j++) {
-                for (int i = 0; i < n[0]-1; i++) {
+            for (int i = 0; i < n[0]-1; i++) {
+                for (int j = 1; j < n[1]-1; j++) {
                     int inn = i-1;
                     int inn2 = i-2;
                     int ipp = i+1;

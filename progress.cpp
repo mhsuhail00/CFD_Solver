@@ -20,6 +20,7 @@ public:
     Vec ajac;                       // Mapped top 2D
     Vec xnix, xniy, xnox, xnoy;     // Mapped to 1D
     Vec p1, q1;
+    Vec xnixi, xniet;
 
     Data(PetscInt n_0, PetscInt n_1): n_0(n_0), n_1(n_1) {
         PetscErrorCode ierr;
@@ -55,6 +56,10 @@ public:
 
         createVector(p1, n_0 * n_1);
         createVector(q1, n_0 * n_1);
+
+        VecCreateSeq(PETSC_COMM_SELF, n_0, &xnixi);
+        VecCreateSeq(PETSC_COMM_SELF, n_0, &xniet);
+
 
     }
 
@@ -178,18 +183,109 @@ public:
         VecView(dxix, PETSC_VIEWER_STDOUT_WORLD);
 
         input_file.close();
+
+        PetscErrorCode computeInnerBoundary() {
+            return computeBoundaryNormals(xnixi, xniet, 
+                                        dxix, dxiy, dex, dey,
+                                        xnix, xniy, 
+                                        0);  // j=0
+        }
+
+        return ierr;
+    }
+
+    
+
+    // Add this as a member function in your Data class
+    PetscErrorCode computeBoundaryNormals(Vec output_xi, Vec output_et, 
+                                        Vec metric_xi_x, Vec metric_xi_y,
+                                        Vec metric_et_x, Vec metric_et_y,
+                                        Vec normal_x, Vec normal_y,
+                                        PetscInt boundary_j) {
+        PetscErrorCode ierr;
+        
+        // Create slice vectors
+        Vec slice_xi_x, slice_xi_y, slice_et_x, slice_et_y;
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n0, &slice_xi_x); CHKERRQ(ierr);
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n0, &slice_xi_y); CHKERRQ(ierr);
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n0, &slice_et_x); CHKERRQ(ierr);
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n0, &slice_et_y); CHKERRQ(ierr);
+        
+        // Extract j=boundary_j slice from 2D arrays
+        PetscScalar *slice_arr;
+        const PetscScalar *metric_arr;
+        
+        // Extract dxix[i][boundary_j]
+        ierr = VecGetArrayRead(metric_xi_x, &metric_arr); CHKERRQ(ierr);
+        ierr = VecGetArray(slice_xi_x, &slice_arr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < n0; i++) {
+            slice_arr[i] = metric_arr[index(i, boundary_j)];
+        }
+        ierr = VecRestoreArrayRead(metric_xi_x, &metric_arr); CHKERRQ(ierr);
+        ierr = VecRestoreArray(slice_xi_x, &slice_arr); CHKERRQ(ierr);
+        
+        // Extract dxiy[i][boundary_j]
+        ierr = VecGetArrayRead(metric_xi_y, &metric_arr); CHKERRQ(ierr);
+        ierr = VecGetArray(slice_xi_y, &slice_arr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < n0; i++) {
+            slice_arr[i] = metric_arr[index(i, boundary_j)];
+        }
+        ierr = VecRestoreArrayRead(metric_xi_y, &metric_arr); CHKERRQ(ierr);
+        ierr = VecRestoreArray(slice_xi_y, &slice_arr); CHKERRQ(ierr);
+        
+        // Extract dex[i][boundary_j]
+        ierr = VecGetArrayRead(metric_et_x, &metric_arr); CHKERRQ(ierr);
+        ierr = VecGetArray(slice_et_x, &slice_arr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < n0; i++) {
+            slice_arr[i] = metric_arr[index(i, boundary_j)];
+        }
+        ierr = VecRestoreArrayRead(metric_et_x, &metric_arr); CHKERRQ(ierr);
+        ierr = VecRestoreArray(slice_et_x, &slice_arr); CHKERRQ(ierr);
+        
+        // Extract dey[i][boundary_j]
+        ierr = VecGetArrayRead(metric_et_y, &metric_arr); CHKERRQ(ierr);
+        ierr = VecGetArray(slice_et_y, &slice_arr); CHKERRQ(ierr);
+        for (PetscInt i = 0; i < n0; i++) {
+            slice_arr[i] = metric_arr[index(i, boundary_j)];
+        }
+        ierr = VecRestoreArrayRead(metric_et_y, &metric_arr); CHKERRQ(ierr);
+        ierr = VecRestoreArray(slice_et_y, &slice_arr); CHKERRQ(ierr);
+        
+        // Now perform: output_xi = slice_xi_x .* normal_x + slice_xi_y .* normal_y
+        Vec temp1, temp2;
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n0, &temp1); CHKERRQ(ierr);
+        ierr = VecCreateSeq(PETSC_COMM_SELF, n0, &temp2); CHKERRQ(ierr);
+        
+        // xnixi[i] = dxix[i][j] * xnix[i] + dxiy[i][j] * xniy[i]
+        ierr = VecPointwiseMult(temp1, slice_xi_x, normal_x); CHKERRQ(ierr);
+        ierr = VecPointwiseMult(temp2, slice_xi_y, normal_y); CHKERRQ(ierr);
+        ierr = VecWAXPY(output_xi, 1.0, temp1, temp2); CHKERRQ(ierr);
+        
+        // xniet[i] = dex[i][j] * xnix[i] + dey[i][j] * xniy[i]
+        ierr = VecPointwiseMult(temp1, slice_et_x, normal_x); CHKERRQ(ierr);
+        ierr = VecPointwiseMult(temp2, slice_et_y, normal_y); CHKERRQ(ierr);
+        ierr = VecWAXPY(output_et, 1.0, temp1, temp2); CHKERRQ(ierr);
+        
+        // Cleanup
+        VecDestroy(&temp1);
+        VecDestroy(&temp2);
+        VecDestroy(&slice_xi_x);
+        VecDestroy(&slice_xi_y);
+        VecDestroy(&slice_et_x);
+        VecDestroy(&slice_et_y);
+        
         return ierr;
     }
 
     // This function is to make use of vector as an abstraction of 2D Array
     int index(int i, int j){
         // assuming  dim = n0 * n1
-        return i * n0 + j;
+        return i + n0 * j;
 
     }
     int index(int i, int j, int k){
         // assuming dim = n0 * n1 * n2
-        return i * n0 * n1 + j * n0 + k;
+        return i * n0 * n1 + j + n0 * k;
     }
 
     ~Data() {
@@ -211,6 +307,8 @@ public:
         VecDestroy(&q1);
 
     }
+
+    
 };
 
 int main(int argc, char** argv) {
