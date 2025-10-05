@@ -758,8 +758,8 @@ public:
         // cout << "Forming coefficient matrix for velocity..." << endl;
         for(int j=1;j<n[1]-1;j++){
             for(int i=0;i<n[0]-1;i++){
-                if(i==1){
-                    inn = n[0]-1;
+                if(i==0){
+                    inn = n[0]-2;
                     ipp = i+1;
                 }
                 else{
@@ -1049,9 +1049,7 @@ public:
         auto end = chrono::high_resolution_clock::now();
         auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
         cout << "Time taken in Constructor: " << duration.count() << " ms" << endl;
-
-        // cout << "Initialization complete. Entering time loop..." << endl;
-        timeLoop();
+        
     }
 
     // Destructor

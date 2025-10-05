@@ -1,7 +1,3 @@
-// This is optimized wrt solver_0.cpp
-// By making use of contigious alloction block of array rows
-// Implemented by changing sequence of nested for loops
-
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -758,8 +754,8 @@ public:
         // cout << "Forming coefficient matrix for velocity..." << endl;
         for(int i=0;i<n[0]-1;i++){
             for(int j=1;j<n[1]-1;j++){
-                if(i==0){
-                    inn = n[0]-2;
+                if(i==1){
+                    inn = n[0]-1;
                     ipp = i+1;
                 }
                 else{
@@ -1050,6 +1046,8 @@ public:
         auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
         cout << "Time taken in Constructor: " << duration.count() << " ms\n" << endl;
 
+        // cout << "Initialization complete. Entering time loop..." << endl;
+        timeLoop();
     }
 
     // Destructor
@@ -2075,7 +2073,7 @@ public:
 
             auto end = chrono::high_resolution_clock::now();
             auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-            // start = chrono::high_resolution_clock::now();
+            start = chrono::high_resolution_clock::now();
             cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms\n" << endl;
 
         }
