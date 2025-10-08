@@ -1716,8 +1716,8 @@ c================================================================
       endif
 
       CALL CPU_TIME(time_end)  ! End timing
-      time_elapsed = (time_end - time_start) * 1000.0
-      WRITE(*, *) loop, '  Time: ', time_elapsed, 'ms'
+c       time_elapsed = (time_end - time_start) * 1000.0
+      WRITE(*, *) loop, '  Time: ', time_end, 'ms'
       WRITE(*,*)
 
 101    continue

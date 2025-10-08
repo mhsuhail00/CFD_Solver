@@ -13,6 +13,7 @@ class Solver {
 public:
     static constexpr int np1 = 350; //213
     static constexpr int np2 = 570; //420
+    int snapshot_count;
 
     // 2D coefficient matrices (pressure equation) - converted to pointers
     blitz::Array<double, 2> ae{np1, np2};
@@ -29,7 +30,6 @@ public:
     blitz::Array<double, 2> beta{np1, np2};
     blitz::Array<double, 2> gamma{np1, np2};
 
-    blitz::Array<std::string, 1> filnam{100};
     std::string resfile;
 
     // 2D velocity coefficient matrices (au* series)
@@ -199,7 +199,7 @@ public:
     int loop, time, iiflag, inn, ipp, jnn, jpp;
     double t_period, icycles, tstart, t_incr, i_loop, loop_snap, dmax;
 
-    Solver() {
+    Solver(): snapshot_count(0) {
         auto start = std::chrono::high_resolution_clock::now();
 
         // dummy variables
@@ -248,23 +248,6 @@ public:
         // vector operation load zeros
         p1 = 0.0;
         q1 = 0.0;
-
-        // --------------------------------------------------------
-        // generating filenames for saving the snapshots
-        // --------------------------------------------------------
-        // cout << "Generating filenames for saving the snapshots..." << endl;
-        for (int i = 0; i < maxsnap; i++) {
-            filnam(i) = "SNAP000.DAT";
-        }
-        int i3, i2, i1;
-        for (int k = 0; k < maxsnap; k++) {
-            i3 = k / 100;
-            i2 = (k - 100 * i3) / 10;
-            i1 = k - i2 * 10 - i3 * 100;
-            filnam(k)[5] = '0' + i3;
-            filnam(k)[6] = '0' + i2;
-            filnam(k)[7] = '0' + i1;
-        }
 
         // --------------------------------------------------------
         // CALCULATING NXi AND Net AT OUTER AND INNER POINTS
@@ -354,9 +337,9 @@ public:
             restart_file.close();
         }
 
-        // dead code
         iiflag = 0;
         iflag = 0;
+        // dead code
         t_period = 100.0;
         if (iflag == 1) {
             icycles = time / t_period;
@@ -1565,8 +1548,8 @@ public:
             // ===========================================================
             // Calculating circulation at the 2nd last level in jth
             // ===========================================================
-            blitz::Array<double,2> f1{n[0]};
-            blitz::Array<double,2> f2{n[0]};
+            blitz::Array<double,1> f1{n[0]};
+            blitz::Array<double,1> f2{n[0]};
             double circ = 0.0;
             double de = 1.0 / (n[0] - 2);
 
@@ -1708,8 +1691,6 @@ public:
                         (2 * dxi(0) * dxi(1));
             qqq(K,i,j) = q1(i,j) * (-3 * u(K,i,j) + 4 * u(K,i,jpp) - u(K,i,jpp2)) / (2 * dxi(1));
 
-            d2u(K,i,j) = aa(K,i,j) + gg(K,i,j) - 2 * bb(K,i,j) + qqq(K,i,j);
-
             //convective
             conv(K,i,j) = uxi(i,j) * 0.5 * (u(K,ipp,j) - u(K,inn,j)) / dxi(0);
             conv(K,i,j) = conv(K,i,j) + uet(i,j) * (u(K,i,jpp) - u(K,i,j)) / dxi(1);
@@ -1724,8 +1705,6 @@ public:
                         (2 * dxi(0) * dxi(1));
             qqq(K,I,j) = q1(I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1));
 
-            d2u(K,I,j) = aa(K,I,j) + gg(K,I,j) - 2 * bb(K,I,j) + qqq(K,I,j);
-
             //convective
             conv(K,I,j) = uxi(I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0);
             conv(K,I,j) = conv(K,I,j) + uet(I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1);
@@ -1733,6 +1712,8 @@ public:
             // -----common range for--i є [1,n[0]-2]------------------------------
             blitz::Range I(0,n[0]-2);
 
+            d2u(K,I,j) = aa(K,I,j) + gg(K,I,j) - 2 * bb(K,I,j) + qqq(K,I,j);
+            
             // local
             alc(0,I,j) = accn_amp * sin(2.0 * Pi * F * time) * x(1,I,j);
             alc(1,I,j) = -accn_amp * sin(2.0 * Pi * F * time) * x(0,I,j);
@@ -1742,257 +1723,310 @@ public:
 
             p(I, j) = p(I, j-1) + (dp_dx(I,j) * (-dxiy(I,j) * ajac(I,j)) + dp_dy(I,j) * (dxix(I,j) * ajac(I,j))) * dxi(1);
             
-            
-            
-            for(int i = 0; i < n[0] - 1; i++) {
+            // Copying first to last
+            p(n[0]-1, j) = p(0, j);
 
-                for(int k = 0; k < 2; k++) {
-
-                    else {
-                        ipp = i + 1;
-                        inn = i - 1;
-                    }
-
-                    
-
-                    // diffusive
-                    double aa = alph[i][j] * (u[k][ipp][j] + u[k][inn][j] - 2 * u[k][i][j]) / (dxi[0] * dxi[0]);
-
-                    double gg = gamma[i][j] * (u[k][i][jpp+1] + u[k][i][j] - 2 * u[k][i][jpp]) / (dxi[1] * dxi[1]);
-
-                    double bb = beta[i][j] * (u[k][ipp][jpp] + u[k][inn][j] - u[k][inn][jpp] - u[k][ipp][j]) / 
-                            (2 * dxi[0] * dxi[1]);
-
-                    double qqq = q1[i][j] * (-3 * u[k][i][j] + 4 * u[k][i][jpp] - u[k][i][jpp2]) / (2 * dxi[1]);
-
-                    d2u[k] = aa + gg - 2 * bb + qqq;
-
-                    // convective
-                    conv[k] = uxi[i][j] * 0.5 * (u[k][ipp][j] - u[k][inn][j]) / dxi[0];
-                    
-                    conv[k] = conv[k] + uet[i][j] * (u[k][i][jpp] - u[k][i][j]) / dxi[1];
-
-                    // local
-                    if(k == 0) {
-                        alc[k] = accn_amp * sin(2.0 * Pi * F * time) * x[1][i][j];      // line edited
-                    }
-                    else {
-                        alc[k] = -accn_amp * sin(2.0 * Pi * F * time) * x[0][i][j];     // line edited
-                    }
-
-                    if (k == 0) dp_dx = 1.0 * d2u[k] / Re - conv[k] - alc[k];
-                    if (k == 1) dp_dy = 1.0 * d2u[k] / Re - conv[k] - alc[k] + Ri * u[2][i][j];
-                }
-
-                p[i][j] = p[i][j+1] - (dp_dx * (-dxiy[i][j] * ajac[i][j]) + dp_dy * (dxix[i][j] * ajac[i][j])) * dxi[1];
-
-                if(i == 0) p[n[0] - 1][j] = p[i][j];
-            }
 
             // at exit boundary
             // cout << "Applying at exit boundary..." << endl;
             j = n[1] - 1;
+            jnn = j - 1;
+            jnn2 = j - 2;
+            blitz::Range I(0,n[0]-2);
+            blitz::Range K(0,1);
 
-            for(int i = 0; i < n[0] - 1; i++) {
-                vnn = uinf * xnox[i] + vinf * xnoy[i];
-                if(vnn >= 0) {
-                    // -------------momentum equation----------------------------------
-                    for(int k = 0; k < 2; k++) {
-                        conv[k] = 0;
-                        d2u[k] = 0;
-                        alc[k] = 0;
+            vnn(I) = uinf * xnox(I) + vinf * xnoy(I);
+            conv(K, I, j) = where( vnn(I)>=0,
+                                   0,
+                                   conv(K, I, j));
+            d2u(K, I, j) = where( vnn(I)>=0,
+                                   0,
+                                   d2u(K, I, j));
+            alc(K, I, j) = where( vnn(I)>=0,
+                                   0,
+                                   alc(K, I, j));
+            // -------------momentum equation----------------------------------
+            // -------i = 0 -----------------------------------------------------
+            i = 0;
+            inn = n[0] - 2;
+            ipp = i + 1;
 
-                        ipp = i + 1;
-                        inn = i - 1;
-                        if(i == 0) inn = n[0] - 2;
+            if(vnn(i)>=0){
 
-                        jnn = j - 1;
-                        jnn2 = j - 2;
+                // diffusive
+                aa(K,I,j) = alph(I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0));
+                gg(K,I,j) = gamma(I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1));
+                bb(K,I,j) = beta(I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / (2 * dxi(0) * dxi(1));
+                qqq(K,I,j) = q1(I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1));
 
-                        // diffusive
-                        double aa = alph[i][j] * (u[k][ipp][j] + u[k][inn][j] - 2 * u[k][i][j]) / (dxi[0] * dxi[0]);
+                d2u(K, i, j) = aa(K, i, j) + gg(K, i, j) - 2 * bb(K, i, j) + qqq(K, i, j);
 
-                        double gg = gamma[i][j] * (u[k][i][j] + u[k][i][jnn-1] - 2 * u[k][i][jnn]) / (dxi[1] * dxi[1]);
+                //convective
+                conv(K,I,j) = uxi(I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0);
+                conv(K,I,j) = conv(K,I,j) + uet(I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1);
 
-                        double bb = beta[i][j] * (u[k][ipp][j] + u[k][inn][jnn] - u[k][ipp][jnn] - u[k][inn][j]) / 
-                                (2 * dxi[0] * dxi[1]);
-
-                        double qqq = q1[i][j] * (3 * u[k][i][j] - 4 * u[k][i][jnn] + u[k][i][jnn2]) / (2 * dxi[1]);
-
-                        d2u[k] = aa + gg - 2 * bb + qqq;
-
-                        // convective
-                        conv[k] = uxi[i][j] * 0.5 * (u[k][ipp][j] - u[k][inn][j]) / dxi[0];
-
-                        conv[k] = conv[k] + uet[i][j] * (3.0 * u[k][i][j] - 4 * u[k][i][jnn] + u[k][i][jnn2]) / (2 * dxi[1]);
-
-                        // local
-                        alc[k] = (u[k][i][j] - uold[k][i][j]) / dt;
-
-                        if (k == 0) dp_dx = 1.0 * d2u[k] / Re - conv[k] - alc[k];
-                        if (k == 1) dp_dy = 1.0 * d2u[k] / Re - conv[k] - alc[k] + Ri * u[2][i][j];
-                    }   // k-loop
-
-                    p[i][j] = p[i][j-1] + (dp_dx * (-dxiy[i][j] * ajac[i][j]) + dp_dy * (dxix[i][j] * ajac[i][j])) * dxi[1];
-                }
-                else {
-                    // -------------gresho's condition---------------------------------
-                    p[i][j] = 0.5 * (1.0 / Re) * ((3 * uet[i][j] - 4 * uet[i][j-1] + uet[i][j-2]) / dxi[1]);
-                }
-
-                if(i == 0) p[n[0] - 1][j] = p[i][j];
             }
 
+            // ------i є [1,n[0]-2]----------------------------------------------
+            blitz::Range I(1,n[0]-2);
+            
+            // diffusive
+            aa(K,I,j) = where( vnn(I) >= 0,
+                               alph(I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0)),
+                               aa(K, I, j));
+            gg(K,I,j) = where( vnn(I) >= 0,
+                               gamma(I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1)),
+                               gg(K, I, j));
+            bb(K,I,j) = where( vnn(I) >= 0,
+                               beta(I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / (2 * dxi(0) * dxi(1)),
+                                bb(K, I, j));
+            qqq(K,I,j) = where( vnn(I) >= 0,
+                                q1(I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1)),
+                                qqq(K,I,j));
+
+            d2u(K, I, j) = aa(K, I, j) + gg(K, I, j) - 2 * bb(K, I, j) + qqq(K, I, j);
+
+            //convective
+            conv(K,I,j) = where( vnn(I)>=0,
+                                 uxi(I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0),
+                                conv(K, I, j));
+            conv(K,I,j) = where( vnn(I)>=0,
+                                 conv(K,I,j) + uet(I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1),
+                                conv(K, I, j));
+            
+            // -----common range for--i є [1,n[0]-2]------------------------------
+            blitz::Range I(0,n[0]-2);
+
+            // local
+            alc(K,I,j) = where( vnn(I)>=0,
+                                (u(K, I, j) - uold(K, I, j)) / dt,
+                                alc(K,I,j));
+
+            dp_dx(I,j) = where( vnn(I)>=0,
+                                1.0 * d2u(0,I,j) / Re - conv(0,I,j) - alc(0,I,j),
+                                dp_dx(I,j));
+            dp_dy(I,j) = where( vnn(I)>=0,
+                         1.0 * d2u(1,I,j) / Re - conv(1,I,j) - alc(1,I,j) + Ri * u(2,I,j),
+                         dp_dy(I,j));
+
+            p(I, j) = where( vnn(I)>=0,
+                             p(I, j-1) + (dp_dx(I,j) * (-dxiy(I,j) * ajac(I,j)) + dp_dy(I,j) * (dxix(I,j) * ajac(I,j))) * dxi(1),
+                            // -------------gresho's condition---------------------------------
+                            0.5 * (1.0 / Re) * ((3 * uet(I,j) - 4 * uet(I, jnn) + uet(i, jnn2)) / dxi[1]));
+            
+            // Copying first to last
+            p(n[0]-1, j) = p(0, j);
+
+
             // ----------------------------------
-            // -----calculation of si
+            //        calculation of si
             // ----------------------------------
-            // cout << "Calculating si..." << endl;
+            blitz::Array<double,2> ca{n[0],n[1]};
+            blitz::Array<double,2> cb{n[0],n[1]};
+
             j = 0;
-            for(int i = 0; i < n[0]; i++) {
-                si[i][j] = 0;
-            }
+            blitz::Range I(0,n[0]-1);
+            si(I,j) = 0;
 
-            for(int i = 0; i < n[0]; i++) {
-                for(int j = 1; j < n[1]; j++) {
-                    double ca = (dxix[i][j] * u[0][i][j] * fabs(ajac[i][j]) + dxix[i][j-1] * u[0][i][j-1] * fabs(ajac[i][j-1]));
-                    double cb = (dxiy[i][j] * u[1][i][j] * fabs(ajac[i][j]) + dxiy[i][j-1] * u[1][i][j-1] * fabs(ajac[i][j-1]));
+            blitz::Range J(1,n[1]-1);
+            
 
-                    si[i][j] = si[i][j-1] + (ca + cb) * 0.5 * dxi[1];
-                }
-            }
+            ca(I,J) = (dxix(I,J) * u(0,I,J) * fabs(ajac(I,J)) + dxix(I,J-1) * u(0,I,J-1) * fabs(ajac(I,J-1)));
+            cb(I,J) = (dxix(I,J) * u(1,I,J) * fabs(ajac(I,J)) + dxix(I,J-1) * u(1,I,J-1) * fabs(ajac(I,J-1)));
+            
+            si(I,J) = si(I,J-1) + (ca(I,J) + cb(I,J)) * 0.5 * dxi(1);
 
             // ----------------------------
             // DILATION AND VORTICITY
             // ----------------------------
-            // cout << "Calculating dilation and vorticity..." << endl;
+            blitz::Array<double,2> dv_dxi{n[0],n[1]};
+            blitz::Array<double,2> dv_det{n[0],n[1]};
+            blitz::Array<double,2> dv_dx{n[0],n[1]};
+            blitz::Array<double,2> du_dxi{n[0],n[1]};
+            blitz::Array<double,2> du_det{n[0],n[1]};
+            blitz::Array<double,2> du_dy{n[0],n[1]};
+
+            blitz::Range I(0,n[0]-2);
+            blitz::Range J(1,n[1]-2);
             dmax = 0.0;
-            for(int i = 0; i < n[0] - 1; i++) {
-                for(int j = 1; j < n[1] - 1; j++) {
 
-                    if (i == 0) {
-                        inn = n[0] - 2;
-                        ipp = i + 1;
-                    }
-                    else {
-                        inn = i - 1;
-                        ipp = i + 1;
-                    }
-                    jpp = j + 1;
-                    jnn = j - 1;
+            // ------i = 0 -----------------------------------------------------
+            i = 0;
+            ipp = i + 1;
+            inn = n[0] - 2;
 
-                    dil[i][j] = dxix[i][j] * (u[0][ipp][j] - u[0][inn][j]) / (2 * dxi[0]) + 
-                                dex[i][j] * (u[0][i][jpp] - u[0][i][jnn]) / (2 * dxi[1]) + 
-                                dey[i][j] * (u[1][i][jpp] - u[1][i][jnn]) / (2 * dxi[1]) + 
-                                dxiy[i][j] * (u[1][ipp][j] - u[1][inn][j]) / (2 * dxi[0]);
-                    // cout << fixed << setprecision(16);
-                    // cout <<"@ "<< dxix[i][j]<<" "<<u[0][ipp][j]<<" "<<u[0][inn][j]<<" "<<dxi[0]<< endl;
-                    // cout <<"# "<< dex[i][j]<<" "<<u[0][i][jpp]<<" "<<u[0][i][jnn]<<" "<<dxi[1]<< endl;
-                    // cout <<"$ "<< dey[i][j]<<" "<<u[1][i][jpp]<<" "<<u[1][i][jnn]<< endl;
-                    // cout <<"* "<< dxiy[i][j]<<" "<<u[1][ipp][j]<<" "<<u[1][inn][j]<< endl;
+            dil(i,J) = dxix(i,J) * (u(0,ipp,J) - u(0,inn,J)) / (2 * dxi(0)) + 
+                                dex(i,J) * (u(0,i,J+1) - u(0,i,J-1)) / (2 * dxi(1)) + 
+                                dey(i,J) * (u(1,i,J+1) - u(1,i,J-1)) / (2 * dxi[1]) + 
+                                dxiy(i,J) * (u(1,ipp,J) - u(1,inn,J)) / (2 * dxi(0));
 
-                    double dv_dxi = 0.5 / dxi[0] * (u[1][ipp][j] - u[1][inn][j]);
-                    double dv_det = 0.5 / dxi[1] * (u[1][i][jpp] - u[1][i][jnn]);
+            dv_dxi(i,J) = 0.5 / dxi(0) * (u(1,ipp,J) - u(1,inn,J));
+            dv_det(i,J) = 0.5 / dxi(1) * (u(1,i,J+1) - u(1,i,J-1));
 
-                    double dv_dx = dxix[i][j] * dv_dxi + dex[i][j] * dv_det;
+            dv_dx(i,J) = dxix(i,J) * dv_dxi(i,J) + dex(i,J) * dv_det(i,J);
 
-                    double du_dxi = 0.5 / dxi[0] * (u[0][ipp][j] - u[0][inn][j]);
-                    double du_det = 0.5 / dxi[1] * (u[0][i][jpp] - u[0][i][jnn]);
+            du_dxi(i,J) = 0.5 / dxi(0) * (u(0,ipp,J) - u(0,inn,J));
+            du_det(i,J) = 0.5 / dxi(1) * (u(0,i,J+1) - u(0,i,J-1));    
 
-                    double du_dy = dxiy[i][j] * du_dxi + dey[i][j] * du_det;
-
-                    vort[i][j] = dv_dx - du_dy;
-
-                    if (i == 0) {
-                        dil[n[0] - 1][j] = dil[i][j];
-                        vort[n[0] - 1][j] = vort[i][j];
-                    }
-
-                    if (dil[i][j] > dmax) {
-                        dmax = dil[i][j];
-                    }
-                }
-            }
-
-            for(int j = 0; j < n[1]; j += n[1] - 1) {
-                for(int i = 0; i < n[0] - 1; i++) {
-                    if (i == 0) {
-                        inn = n[0] - 2;
-                        ipp = i + 1;
-                    }
-                    else {
-                        inn = i - 1;
-                        ipp = i + 1;
-                    }
-                    jpp = j + 1;
-                    jnn = j - 1;
-
-                    double dv_dxi = 0.5 / dxi[0] * (u[1][ipp][j] - u[1][inn][j]);
-                    double dv_det;
-                    if(j == 0) dv_det = 1.0 / dxi[1] * (u[1][i][jpp] - u[1][i][j]);
-                    if(j == n[1] - 1) dv_det = 1.0 / dxi[1] * (u[1][i][j] - u[1][i][jnn]);
-
-                    double dv_dx = dxix[i][j] * dv_dxi + dex[i][j] * dv_det;
-
-                    double du_dxi = 0.5 / dxi[0] * (u[0][ipp][j] - u[0][inn][j]);
-                    double du_det;
-                    if(j == 0) du_det = 1.0 / dxi[1] * (u[0][i][jpp] - u[0][i][j]);
-                    if(j == n[1] - 1) du_det = 1.0 / dxi[1] * (u[0][i][j] - u[0][i][jnn]);
-
-                    double du_dy = dxiy[i][j] * du_dxi + dey[i][j] * du_det;
-
-                    vort[i][j] = dv_dx - du_dy;
-
-                    if (i == 0) {
-                        vort[n[0] - 1][j] = vort[i][j];
-                    }
-                }
-            }
-
-            cout << loop << " " << dmax << endl;
+            dil(n[0] - 1,J) = dil(I,J);
+            vort(n[0] - 1,J) = vort(I,J);
             
+            // ------i є [1,n[0]-2]----------------------------------------------
+            blitz::Range I(1,n[0]-2);
+
+            dil(I,J) = dxix(I,J) * (u(0,I+1,J) - u(0,I-1,J)) / (2 * dxi(0)) + 
+                                dex(I,J) * (u(0,I,J+1) - u(0,I,J-1)) / (2 * dxi(1)) + 
+                                dey(I,J) * (u(1,I,J+1) - u(1,I,J-1)) / (2 * dxi[1]) + 
+                                dxiy(I,J) * (u(1,I+1,J) - u(1,I-1,J)) / (2 * dxi(0));
+
+            dv_dxi(I,J) = 0.5 / dxi(0) * (u(1,I+1,J) - u(1,I-1,J));
+            dv_det(I,J) = 0.5 / dxi(1) * (u(1,I,J+1) - u(1,I,J-1));
+
+            dv_dx(I,J) = dxix(I,J) * dv_dxi(I,J) + dex(I,J) * dv_det(I,J);
+
+            du_dxi(I,J) = 0.5 / dxi(0) * (u(0,I+1,J) - u(0,I-1,J));
+            du_det(I,J) = 0.5 / dxi(1) * (u(0,I,J+1) - u(0,I,J-1));    
+            
+            //--------------------------------------------------------------------------
+
+
+            du_dy(I,J) = dxiy(I,J) * du_dxi(I,J) + dey(I,J) * du_det(I,J);
+
+            vort(I,J) = dv_dx(I,J) - du_dy(I,J);
+
+            // Maximum Dilation
+            dmax = max(dil(I,J));
+
+            //-----------------------------------------------------------------
+            blitz::Range I(0,n[0]-2);
+
+            // j = 0 boundary
+            j = 0;
+            jpp = j + 1;
+
+            // ------i = 0 -----------------------------------------------------
+            i = 0;
+            ipp = i + 1;
+            inn = n[0] - 2;
+
+            dv_dxi(i,j) = 0.5 / dxi(0) * (u(1,ipp,j) - u(1,inn,j));
+            dv_det(i,j) = 1.0 / dxi(1) * (u(1,i,jpp) - u(1,i,j));
+
+            dv_dx(i,j) = dxix(i,j) * dv_dxi(i,j) + dex(i,j) * dv_det(i,j);
+
+            du_dxi(i,j) = 0.5 / dxi(0) * (u(0,ipp,j) - u(0,inn,j));
+            du_det(i,j) = 1.0 / dxi(1) * (u(0,i,jpp) - u(0,i,j));
+
+            du_dy(i,j) = dxiy(i,j) * du_dxi(i,j) + dey(i,j) * du_det(i,j);
+
+            vort(i,j) = dv_dx(i,j) - du_dy(i,j);
+
+            vort(n[0]-1,j) = vort(i,j);
+
+            // ------i є [1,n[0]-2]----------------------------------------------
+            blitz::Range I(1,n[0]-2);
+
+            dv_dxi(I,j) = 0.5 / dxi(0) * (u(1,I+1,j) - u(1,I-1,j));
+            dv_det(I,j) = 1.0 / dxi(1) * (u(1,I,jpp) - u(1,I,j));
+
+            dv_dx(I,j) = dxix(I,j) * dv_dxi(I,j) + dex(I,j) * dv_det(I,j);
+
+            du_dxi(I,j) = 0.5 / dxi(0) * (u(0,I+1,j) - u(0,I-1,j));
+            du_det(I,j) = 1.0 / dxi(1) * (u(0,I,jpp) - u(0,I,j));
+
+            du_dy(I,j) = dxiy(I,j) * du_dxi(I,j) + dey(I,j) * du_det(I,j);
+
+            vort(I,j) = dv_dx(I,j) - du_dy(I,j);
+
+            // j = n[1] - 1 boundary
+            j = n[1] - 1;
+            jnn = j - 1;
+
+            // ------i = 0 -----------------------------------------------------
+            i = 0;
+            ipp = i + 1;
+            inn = n[0] - 2;
+
+            dv_dxi(i,j) = 0.5 / dxi(0) * (u(1,ipp,j) - u(1,inn,j));
+            dv_det(i,j) = 1.0 / dxi(1) * (u(1,i,j) - u(1,i,jnn));
+
+            dv_dx(i,j) = dxix(i,j) * dv_dxi(i,j) + dex(i,j) * dv_det(i,j);
+
+            du_dxi(i,j) = 0.5 / dxi(0) * (u(0,ipp,j) - u(0,inn,j));
+            du_det(i,j) = 1.0 / dxi(1) * (u(0,i,j) - u(0,i,jnn));
+
+            du_dy(i,j) = dxiy(i,j) * du_dxi(i,j) + dey(i,j) * du_det(i,j);
+
+            vort(i,j) = dv_dx(i,j) - du_dy(i,j);
+
+            vort(n[0]-1,j) = vort(i,j);
+
+            // ------i є [1,n[0]-2]----------------------------------------------
+            blitz::Range I(1,n[0]-2);
+
+            dv_dxi(I,j) = 0.5 / dxi(0) * (u(1,I+1,j) - u(1,I-1,j));
+            dv_det(I,j) = 1.0 / dxi(1) * (u(1,I,j) - u(1,I,jnn));
+
+            dv_dx(I,j) = dxix(I,j) * dv_dxi(I,j) + dex(I,j) * dv_det(I,j);
+
+            du_dxi(I,j) = 0.5 / dxi(0) * (u(0,I+1,j) - u(0,I-1,j));
+            du_det(I,j) = 1.0 / dxi(1) * (u(0,I,j) - u(0,I,jnn));
+
+            du_dy(I,j) = dxiy(I,j) * du_dxi(I,j) + dey(I,j) * du_det(I,j);
+
+            vort(I,j) = dv_dx(I,j) - du_dy(I,j);
+
+
+            std::cout << loop << " " << dmax << std::endl;
+
             // =========================================================
             // Calculation of lift,drag,moment and Nusselt number
             // =========================================================
-            // cout << "Calculating lift, drag, moment, and Nusselt number..." << endl;
             // ----------------------------------------------------
             // calculating pressure and vorticity surface integrals
             // for forces
             // ----------------------------------------------------
-            // cout << "Calculating pressure and vorticity surface integrals for forces..." << endl;
+
             j = 0;
 
-            double pr_x = 0.0;
-            double pr_y = 0.0;
-            double vor_x = 0.0;
-            double vor_y = 0.0;
+            blitz::Range I(0, n[0]-2);
+            
+            blitz::Array<double,1> PJ1(n[0]);
+            blitz::Array<double,1> PJ2(n[0]);
+            blitz::Array<double,1> VJ1(n[0]);
+            blitz::Array<double,1> VJ2(n[0]);
+            blitz::Array<double,1> fp1_x(n[0]);
+            blitz::Array<double,1> fp2_x(n[0]);
+            blitz::Array<double,1> fp1_y(n[0]);
+            blitz::Array<double,1> fp2_y(n[0]);
+            blitz::Array<double,1> fv1_x(n[0]);
+            blitz::Array<double,1> fv2_x(n[0]);
+            blitz::Array<double,1> fv1_y(n[0]);
+            blitz::Array<double,1> fv2_y(n[0]);
 
-            for(int i = 0; i < n[0] - 1; i++) {
-                int ip = i + 1;
+            PJ1(I) = p(I,j) * ajac(I,j);
+            PJ2(I) = p(I+1,j) * ajac(I+1,j);
 
-                double PJ1 = p[i][j] * ajac[i][j];
-                double pj2 = p[ip][j] * ajac[ip][j];
+            VJ1(I) = vort(I,j) * ajac(I,j);
+            VJ2(I) = vort(I+1,j) * ajac(I+1,j);
 
-                double VJ1 = vort[i][j] * ajac[i][j];
-                double VJ2 = vort[ip][j] * ajac[ip][j];
+            fp1_x(I) = PJ1(I) * dex(I,j);
+            fp2_x(I) = PJ2(I) * dex(I+1,j);
 
-                double fp1_x = PJ1 * dex[i][j];
-                double fp2_x = pj2 * dex[ip][j];
+            fp1_y(I) = PJ1(I) * dey(I,j);
+            fp2_y(I) = PJ2(I) * dey(I+1,j);
 
-                double fp1_y = PJ1 * dey[i][j];
-                double fp2_y = pj2 * dey[ip][j];
+            fv1_x(I) = VJ1(I) * dey(I,j);
+            fv2_x(I) = VJ2(I) * dey(I+1,j);
 
-                double fv1_x = VJ1 * dey[i][j];
-                double fv2_x = VJ2 * dey[ip][j];
+            fv1_y(I) = VJ1(I) * dex(I,j);
+            fv2_y(I) = VJ2(I) * dex(I+1,j);
 
-                double fv1_y = VJ1 * dex[i][j];
-                double fv2_y = VJ2 * dex[ip][j];
+            double pr_x = sum(0.5 * dxi(0) * (fp1_x(I) + fp2_x(I)));
+            double pr_y = sum(0.5 * dxi(0) * (fp1_y(I) + fp2_y(I)));
 
-                pr_x = pr_x + 0.5 * dxi[0] * (fp1_x + fp2_x);
-                pr_y = pr_y + 0.5 * dxi[0] * (fp1_y + fp2_y);
-
-                vor_x = vor_x + 0.5 * dxi[0] * (fv1_x + fv2_x);
-                vor_y = vor_y + 0.5 * dxi[0] * (fv1_y + fv2_y);
-            }
+            double vor_x = sum(0.5 * dxi(0) * (fv1_x(I) + fv2_x(I)));
+            double vor_y = sum(0.5 * dxi(0) * (fv1_y(I) + fv2_y(I)));
 
             double cx = 2 * pr_x + (2.0 / Re) * vor_x;
             double cy = 2 * pr_y - (2.0 / Re) * vor_y;
@@ -2005,97 +2039,126 @@ public:
             double cl = cy * sin(alpha * Pi / 180.0) - cx * cos(alpha * Pi / 180.0);
             double cd = cy * cos(alpha * Pi / 180.0) + cx * sin(alpha * Pi / 180.0);
 
+
             // -------------------------------------------------------
             // calculating surface pressure,vorticity and temp. integrals
             // for moment coefficient and Nusselt number
             // -------------------------------------------------------
-            // cout << "Calculating surface pressure, vorticity, and temperature integrals..." << endl;
-            double press_i = 0.0;
-            double vor_i = 0.0;
-            double temp_i = 0.0;
+            blitz::Array<double,1> TJ1(n[0]);
+            blitz::Array<double,1> TJ2(n[0]);
+            blitz::Array<double,1> fp1(n[0]);
+            blitz::Array<double,1> fp2(n[0]);
+            blitz::Array<double,1> fv1(n[0]);
+            blitz::Array<double,1> fv2(n[0]);
+            blitz::Array<double,1> fh1(n[0]);
+            blitz::Array<double,1> fh2(n[0]);
 
-            for(int i = 0; i < n[0] - 1; i++) {
-                int ip = i + 1;
+            j = 0;
+            blitz::Range I(0, n[0]-2);
 
-                double PJ1 = p[i][j] * ajac[i][j];
-                double pj2 = p[ip][j] * ajac[ip][j];
+            PJ1(I) = p(I,j) * ajac(I,j);
+            PJ2(I) = p(I+1,j) * ajac(I+1,j);
 
-                double VJ1 = vort[i][j] * ajac[i][j];
-                double VJ2 = vort[ip][j] * ajac[ip][j];
+            VJ1(I) = vort(I,j) * ajac(I,j);
+            VJ2(I) = vort(I+1,j) * ajac(I+1,j);
 
-                double TJ1 = ajac[i][j] * (dex[i][j] * dex[i][j] + dey[i][j] * dey[i][j]);
-                double TJ2 = ajac[ip][j] * (dex[ip][j] * dex[ip][j] + dey[ip][j] * dey[ip][j]);
+            TJ1(I) = ajac(I,j) * (dex(I,j) * dex(I,j) + dey(I,j) * dey(I,j));
+            TJ2(I) = ajac(I+1,j) * (dex(I+1,j) * dex(I+1,j) + dey(I+1,j) * dey(I+1,j));
 
-                double fp1 = PJ1 * (x[0][i][j] * dey[i][j] - x[1][i][j] * dex[i][j]);
-                double fp2 = pj2 * (x[0][ip][j] * dey[ip][j] - x[1][ip][j] * dex[ip][j]);
+            fp1(I) = PJ1(I) * (x(0,I,j) * dey(I,j) - x(1,I,j) * dex(I,j));
+            fp2(I) = PJ2(I) * (x(0,I+1,j) * dey(I+1,j) - x(1,I+1,j) * dex(I+1,j));
 
-                double fv1 = VJ1 * (x[0][i][j] * dex[i][j] + x[1][i][j] * dey[i][j]);
-                double fv2 = VJ2 * (x[0][ip][j] * dex[ip][j] + x[1][ip][j] * dey[ip][j]);
+            fv1(I) = VJ1(I) * (x(0,I,j) * dex(I,j) + x(1,I,j) * dey(I,j));
+            fv2(I) = VJ2(I) * (x(0,I+1,j) * dex(I+1,j) + x(1,I+1,j) * dey(I+1,j));
 
-                double fh1 = TJ1 * (4 * u[2][i][j+1] - 3 * u[2][i][j] - u[2][i][j+2]) / (2 * dxi[1]);
-                double fh2 = TJ2 * (4 * u[2][ip][j+1] - 3 * u[2][ip][j] - u[2][ip][j+2]) / (2 * dxi[1]);
+            fh1(I) = TJ1(I) * (4 * u(2,I,j+1) - 3 * u(2,I,j) - u(2,I,j+2)) / (2 * dxi(1));
+            fh2(I) = TJ2(I) * (4 * u(2,I+1,j+1) - 3 * u(2,I+1,j) - u(2,I+1,j+2)) / (2 * dxi(1));
 
-                press_i = press_i + 0.5 * dxi[0] * (fp1 + fp2);
-                vor_i = vor_i + 0.5 * dxi[0] * (fv1 + fv2);
-                temp_i = temp_i + 0.5 * (fh1 + fh2) * dxi[0];
-            }
+            double press_i = sum(0.5 * dxi(0) * (fp1(I) + fp2(I)));
+            double vor_i = sum(0.5 * dxi(0) * (fv1(I) + fv2(I)));
+            double temp_i = sum(0.5 * (fh1(I) + fh2(I)) * dxi(0));
 
             double cm = 2 * press_i - (2.0 / Re) * vor_i;
             double Nuss = (2 * temp_i) / (Pi * (3 * (1 + (1.0 / ar)) - sqrt((3 + (1.0 / ar)) * ((3.0 / ar) + 1))));
-            
+
+
             // ----------------------------------------------------------
             // FILE WRITING
             // ----------------------------------------------------------
-            // cout << "Writing output files..." << endl;
             if(loop % 100 == 0) {
 
-                ofstream file1("spt100.dat");
-                file1 << "zone" << endl;
-                file1 << "I=" << n[0] << endl;
-                file1 << "J=" << n[1] << endl;
+                std::ofstream file1("spt100.dat");
+                file1 << "zone" << std::endl;
+                file1 << "I=" << n[0] << std::endl;
+                file1 << "J=" << n[1] << std::endl;
+                
+                // Still need loops for formatted output, but can use Range objects
+                blitz::Range I(0, n[0]-1);
+                blitz::Range J(0, n[1]-1);
                 
                 for(int j = 0; j < n[1]; j++) {
                     for(int i = 0; i < n[0]; i++) {
-                        file1 << fixed << setprecision(9) << x[0][i][j] << " " << x[1][i][j] << " "
-                            << scientific << setprecision(13) << u[0][i][j] << " " << u[1][i][j] << " " 
-                            << u[2][i][j] << " " << p[i][j] << " " << si[i][j] << " " << vort[i][j] << endl;
+                        file1 << std::fixed << std::setprecision(9) << x(0, i, j) << " " << x(1, i, j) << " "
+                            << std::scientific << std::setprecision(13) << u(0, i, j) << " " << u(1, i, j) << " " 
+                            << u(2, i, j) << " " << p(i, j) << " " << si(i, j) << " " << vort(i, j) << std::endl;
                     }
-                    file1 << endl;
+                    file1 << std::endl;
                 }
                 file1.close();
 
-                ofstream file2("spa100.dat", ios::binary);
+                std::ofstream file2("spa100.dat", std::ios::binary);
                 file2.write(reinterpret_cast<char*>(&loop), sizeof(loop));
                 file2.write(reinterpret_cast<char*>(&time), sizeof(time));
                 file2.write(reinterpret_cast<char*>(&dmax), sizeof(dmax));
                 
-                // Write arrays as binary data
-                file2.write(reinterpret_cast<char*>(x), sizeof(x));
-                file2.write(reinterpret_cast<char*>(si), sizeof(si));
-                file2.write(reinterpret_cast<char*>(u), sizeof(u));
-                file2.write(reinterpret_cast<char*>(p), sizeof(p));
+                // Write Blitz++ arrays as binary data (already vectorized - writes contiguous memory)
+                file2.write(reinterpret_cast<char*>(x.data()), x.size() * sizeof(double));
+                file2.write(reinterpret_cast<char*>(si.data()), si.size() * sizeof(double));
+                file2.write(reinterpret_cast<char*>(u.data()), u.size() * sizeof(double));
+                file2.write(reinterpret_cast<char*>(p.data()), p.size() * sizeof(double));
                 file2.close();
 
-                ofstream file3("COEFF_HIS.dat", ios::app);
-                file3 << fixed << setprecision(8) << time << " " << cl << " " << cd << " " 
-                    << cm << " " << Nuss << endl;
+                std::ofstream file3("COEFF_HIS.dat", std::ios::app);
+                file3 << std::fixed << std::setprecision(8) << time << " " << cl << " " << cd << " " 
+                    << cm << " " << Nuss << std::endl;
                 file3.close();
 
-                ofstream file4("COEFF_HIS_pr_vor.dat", ios::app);
-                file4 << fixed << setprecision(8) << time << " " << CL_pr << " " << CD_pr << " " 
-                    << CL_vor << " " << CD_vor << endl;
+                std::ofstream file4("COEFF_HIS_pr_vor.dat", std::ios::app);
+                file4 << std::fixed << std::setprecision(8) << time << " " << CL_pr << " " << CD_pr << " " 
+                    << CL_vor << " " << CD_vor << std::endl;
                 file4.close();
 
                 // ================================================================
-                // local nusselt number profile on cylinder
+                // local nusselt number profile on cylinder - VECTORIZED VERSION
                 // ================================================================
-                // cout << "Calculating local Nusselt number profile on cylinder..." << endl;
-                ofstream file5("SURF_DIST.dat");
+                std::ofstream file5("SURF_DIST.dat");
+                
+                // Create index array for vectorized operations
+                blitz::firstIndex i;
+                blitz::Array<double, 1> i_coords(n[0]);
+                i_coords = i * dxi(0);
+                
+                // Extract slices for j=0, 1, 2
+                blitz::Array<double, 1> u2_j0 = u(2, blitz::Range::all(), 0);
+                blitz::Array<double, 1> u2_j1 = u(2, blitz::Range::all(), 1);
+                blitz::Array<double, 1> u2_j2 = u(2, blitz::Range::all(), 2);
+                blitz::Array<double, 1> p_j0 = p(blitz::Range::all(), 0);
+                blitz::Array<double, 1> vort_j0 = vort(blitz::Range::all(), 0);
+                
+                // Vectorized calculation of dthdn
+                blitz::Array<double, 1> dthdn(n[0]);
+                dthdn = -(4.0 * u2_j1 - 3.0 * u2_j0 - u2_j2) / (2.0 * dxi(1));
+                
+                // Extract metric components
+                blitz::Array<double, 1> dex_j0 = dex(blitz::Range::all(), 0);
+                blitz::Array<double, 1> dey_j0 = dey(blitz::Range::all(), 0);
+                
+                // Vectorized metric calculation
+                dthdn *= sqrt(dex_j0 * dex_j0 + dey_j0 * dey_j0);
+                
+                // Write results (still need loop for formatted output)
                 for(int i = 0; i < n[0]; i++) {
-                    double dthdn = -(4 * u[2][i][1] - 3 * u[2][i][0] - u[2][i][2]) / (2 * dxi[1]);
-                    dthdn = dthdn * sqrt(dex[i][0] * dex[i][0] + dey[i][0] * dey[i][0]);
-                    
-                    file5 << i * dxi[0] << " " << p[i][0] << " " << vort[i][0] << " " << dthdn << endl;
+                    file5 << i_coords(i) << " " << p_j0(i) << " " << vort_j0(i) << " " << dthdn(i) << std::endl;
                 }
                 file5.close();
             }
@@ -2106,15 +2169,15 @@ public:
 
                     if (nsnap == (maxsnap + 1)) continue;
 
-                    ofstream snap_file(filnam[nsnap-1]);  // Adjust for 0-based array indexing
+                    std::ofstream snap_file(snap_filename());
                     
                     for(int j = 0; j < n[1]; j++) {
                         for(int i = 0; i < n[0]; i++) {
-                            snap_file << fixed << setprecision(9) << x[0][i][j] << " " << x[1][i][j] << " "
-                                    << scientific << setprecision(5) << si[i][j] << " " 
-                                    << u[2][i][j] << " " << vort[i][j] << endl;
+                            snap_file << std::fixed << std::setprecision(9) << x(0, i, j) << " " << x(1, i, j) << " "
+                                    << std::scientific << std::setprecision(5) << si(i, j) << " " 
+                                    << u(2, i, j) << " " << vort(i, j) << std::endl;
                         }
-                        snap_file << endl;
+                        snap_file << std::endl;
                     }
                     snap_file.close();
 
@@ -2122,164 +2185,159 @@ public:
                 }
             }
 
-            auto end = chrono::high_resolution_clock::now();
-            auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-            start = chrono::high_resolution_clock::now();
-            cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms\n" << endl;
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+            start = std::chrono::high_resolution_clock::now();
+            std::cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms\n" << std::endl;
 
         }
         //END OF TIME LOOP
     }
     
-    void sip9p(double **ap, double **ae, double **as, double **an, 
-                double **aw, double **ase, double **asw, double **ane, 
-                double **anw, double **phi, double **q) {
+    std::string snap_filename(){
+        // --------------------------------------------------------
+        // generating filenames for saving the snapshots
+        // --------------------------------------------------------
+        std::string num = std::to_string(snapshot_count);
+        num = std::string(3 - num.length(), '0') + num;
+        snapshot_count++;
+        return "SNAP" + num + ".DAT";
+
+    }
+
+    void sip9p(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, 
+            blitz::Array<double, 2>& as, blitz::Array<double, 2>& an, 
+            blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
+            blitz::Array<double, 2>& asw, blitz::Array<double, 2>& ane, 
+            blitz::Array<double, 2>& anw, blitz::Array<double, 2>& phi, 
+            blitz::Array<double, 2>& q) {
         
-        // Local arrays for SIP solver - also need dynamic allocation
-        double **be = allocate2D(np1, np2);
-        double **bw = allocate2D(np1, np2);
-        double **bs = allocate2D(np1, np2);
-        double **bn = allocate2D(np1, np2);
-        double **bse = allocate2D(np1, np2);
-        double **bne = allocate2D(np1, np2);
-        double **bnw = allocate2D(np1, np2);
-        double **bsw = allocate2D(np1, np2);
-        double **bp = allocate2D(np1, np2);
-        double **res = allocate2D(np1, np2);
-        double **qp = allocate2D(np1, np2);
-        double **del = allocate2D(np1, np2);
-        double **phio = allocate2D(np1, np2);
+        int np1 = phi.extent(0);
+        int np2 = phi.extent(1);
+        
+        // Local arrays for SIP solver - automatic memory management
+        blitz::Array<double, 2> be(np1, np2);
+        blitz::Array<double, 2> bw(np1, np2);
+        blitz::Array<double, 2> bs(np1, np2);
+        blitz::Array<double, 2> bn(np1, np2);
+        blitz::Array<double, 2> bse(np1, np2);
+        blitz::Array<double, 2> bne(np1, np2);
+        blitz::Array<double, 2> bnw(np1, np2);
+        blitz::Array<double, 2> bsw(np1, np2);
+        blitz::Array<double, 2> bp(np1, np2);
+        blitz::Array<double, 2> res(np1, np2);
+        blitz::Array<double, 2> qp(np1, np2);
+        blitz::Array<double, 2> del(np1, np2);
+        blitz::Array<double, 2> phio(np1, np2);
         
         double tol = 0.75e-2;
         int maxiter = 100000;
         double alp = 0.92;
+        double sumnor = 1.0;
         
-        // Initialize arrays
-        for (int i = 0; i < n[0]; i++) {
-            for (int j = 0; j < n[1]; j++) {
-                bsw[i][j] = 0.0;
-                bn[i][j] = 0.0;
-                bs[i][j] = 0.0;
-                bse[i][j] = 0.0;
-                bnw[i][j] = 0.0;
-                bne[i][j] = 0.0;
-                be[i][j] = 0.0;
-                bw[i][j] = 0.0;
-                bp[i][j] = 0.0;
-            }
-        }
+        // Initialize arrays - VECTORIZED
+        bsw = 0.0;
+        bn = 0.0;
+        bs = 0.0;
+        bse = 0.0;
+        bnw = 0.0;
+        bne = 0.0;
+        be = 0.0;
+        bw = 0.0;
+        bp = 0.0;
+        
         // Forward elimination - compute L and U matrices
         for (int i = 0; i < n[0]-1; i++) {
             for (int j = 1; j < n[1]-1; j++) {
-                int inn, ipp;
-                
-                if (i == 0) {
-                    inn = n[0]-2;
-                    ipp = i+1;
-                } else {
-                    inn = i-1;
-                    ipp = i+1;
-                }
+                int inn = (i == 0) ? n[0]-2 : i-1;
+                int ipp = i+1;
                 
                 int jpp = j+1;
                 int jnn = j-1;
                 
-                bsw[i][j] = asw[i][j];
+                bsw(i, j) = asw(i, j);
                 
-                bw[i][j] = (aw[i][j] + alp*anw[i][j] - bsw[i][j]*bn[inn][jnn]) / 
-                           (1.0 + alp*bn[inn][j]);
+                bw(i, j) = (aw(i, j) + alp*anw(i, j) - bsw(i, j)*bn(inn, jnn)) / 
+                        (1.0 + alp*bn(inn, j));
                 
-                bs[i][j] = (as[i][j] + alp*ase[i][j] - bsw[i][j]*be[inn][jnn]) / 
-                           (1.0 + alp*be[i][jnn]);
+                bs(i, j) = (as(i, j) + alp*ase(i, j) - bsw(i, j)*be(inn, jnn)) / 
+                        (1.0 + alp*be(i, jnn));
                 
-                double ad = anw[i][j] + ase[i][j] - bs[i][j]*be[i][jnn] - bw[i][j]*bn[inn][j];
+                double ad = anw(i, j) + ase(i, j) - bs(i, j)*be(i, jnn) - bw(i, j)*bn(inn, j);
                 
-                bp[i][j] = ap[i][j] - alp*ad - bs[i][j]*bn[i][jnn] - bw[i][j]*be[inn][j] - 
-                           bsw[i][j]*bne[inn][jnn];
+                bp(i, j) = ap(i, j) - alp*ad - bs(i, j)*bn(i, jnn) - bw(i, j)*be(inn, j) - 
+                        bsw(i, j)*bne(inn, jnn);
                 
-                bn[i][j] = (an[i][j] + alp*anw[i][j] - alp*bw[i][j]*bn[inn][j] - 
-                           bw[i][j]*bne[inn][j]) / bp[i][j];
+                bn(i, j) = (an(i, j) + alp*anw(i, j) - alp*bw(i, j)*bn(inn, j) - 
+                        bw(i, j)*bne(inn, j)) / bp(i, j);
                 
-                be[i][j] = (ae[i][j] + alp*ase[i][j] - alp*bs[i][j]*be[i][jnn] - 
-                           bs[i][j]*bne[i][jnn]) / bp[i][j];
+                be(i, j) = (ae(i, j) + alp*ase(i, j) - alp*bs(i, j)*be(i, jnn) - 
+                        bs(i, j)*bne(i, jnn)) / bp(i, j);
                 
-                bne[i][j] = ane[i][j] / bp[i][j];
+                bne(i, j) = ane(i, j) / bp(i, j);
                 
                 // Handle periodic boundary condition
                 if (i == 0) {
-                    bsw[n[0]-1][j] = bsw[i][j];
-                    bn[n[0]-1][j] = bn[i][j];
-                    bs[n[0]-1][j] = bs[i][j];
-                    bse[n[0]-1][j] = bse[i][j];
-                    bnw[n[0]-1][j] = bnw[i][j];
-                    bne[n[0]-1][j] = bne[i][j];
-                    be[n[0]-1][j] = be[i][j];
-                    bw[n[0]-1][j] = bw[i][j];
-                    bp[n[0]-1][j] = bp[i][j];
+                    bsw(n[0]-1, j) = bsw(i, j);
+                    bn(n[0]-1, j) = bn(i, j);
+                    bs(n[0]-1, j) = bs(i, j);
+                    bse(n[0]-1, j) = bse(i, j);
+                    bnw(n[0]-1, j) = bnw(i, j);
+                    bne(n[0]-1, j) = bne(i, j);
+                    be(n[0]-1, j) = be(i, j);
+                    bw(n[0]-1, j) = bw(i, j);
+                    bp(n[0]-1, j) = bp(i, j);
                 }
             }
         }
         
-        // Initialize qp and del arrays
-        for (int i = 0; i < n[0]; i++) {
-            for (int j = 0; j < n[1]; j++) {
-                qp[i][j] = 0.0;
-                del[i][j] = 0.0;
-            }
-        }        
+        // Initialize qp and del arrays - VECTORIZED
+        qp = 0.0;
+        del = 0.0;
+        
         // Main iteration loop
         for (int iter = 0; iter < maxiter; iter++) {
             
-            // Store old phi values
-            for (int i = 0; i < n[0]; i++) {
-                for (int j = 0; j < n[1]; j++) {
-                    phio[i][j] = phi[i][j];
-                }
-            }
+            // Store old phi values - VECTORIZED
+            phio = phi;
             
-            double ssum = 0.0;
+            // Initialize residual
+            res = 0.0;
             
             // Forward sweep - compute residual and qp
             for (int i = 0; i < n[0]-1; i++) {
                 for (int j = 1; j < n[1]-1; j++) {
-                    int inn, ipp;
-                    
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        ipp = i+1;
-                    } else {
-                        inn = i-1;
-                        ipp = i+1;
-                    }
+                    int inn = (i == 0) ? n[0]-2 : i-1;
+                    int ipp = i+1;
                     
                     int jpp = j+1;
                     int jnn = j-1;
                     
                     // Compute residual
-                    res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
-                                an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
-                                aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
-                                ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
-                                ase[i][j]*phi[ipp][jnn];
-                    
-                    ssum += fabs(res[i][j]);
-                    // cout << ssum << endl;
-
+                    res(i, j) = q(i, j) - ap(i, j)*phi(i, j) - ae(i, j)*phi(ipp, j) - 
+                                an(i, j)*phi(i, jpp) - as(i, j)*phi(i, jnn) - 
+                                aw(i, j)*phi(inn, j) - anw(i, j)*phi(inn, jpp) - 
+                                ane(i, j)*phi(ipp, jpp) - asw(i, j)*phi(inn, jnn) - 
+                                ase(i, j)*phi(ipp, jnn);
                     
                     // Forward substitution
-                    qp[i][j] = (res[i][j] - bs[i][j]*qp[i][jnn] - bw[i][j]*qp[inn][j] - 
-                               bsw[i][j]*qp[inn][jnn]) / bp[i][j];
+                    qp(i, j) = (res(i, j) - bs(i, j)*qp(i, jnn) - bw(i, j)*qp(inn, j) - 
+                            bsw(i, j)*qp(inn, jnn)) / bp(i, j);
                     
                     // Handle periodic boundary condition
                     if (i == 0) {
-                        res[n[0]-1][j] = res[i][j];
-                        qp[n[0]-1][j] = qp[i][j];
+                        res(n[0]-1, j) = res(i, j);
+                        qp(n[0]-1, j) = qp(i, j);
                     }
                 }
             }
             
+            // Compute sum of absolute residuals - VECTORIZED
+            blitz::Range I(0, n[0]-2);
+            blitz::Range J(1, n[1]-2);
+            double ssum = blitz::sum(blitz::fabs(res(I, J)));
+            
             // Normalize residual for convergence check
-            double sumnor, sumav;
             if (iter == 0) {
                 if (ssum != 0.0) {
                     sumnor = ssum;
@@ -2288,150 +2346,116 @@ public:
                 }
             }
             
-            // cout << "sumnor: " << sumnor << endl;
-            sumav = ssum / sumnor;
+            double sumav = ssum / sumnor;
             
             // Backward sweep - update phi values
             for (int i = n[0]-2; i >= 0; i--) {
                 for (int j = n[1]-2; j >= 1; j--) {
-                    int inn, ipp;
-                    
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        ipp = i+1;
-                    } else {
-                        inn = i-1;
-                        ipp = i+1;
-                    }
+                    int inn = (i == 0) ? n[0]-2 : i-1;
+                    int ipp = i+1;
                     
                     int jpp = j+1;
                     int jnn = j-1;
                     
                     // Backward substitution
-                    del[i][j] = qp[i][j] - bn[i][j]*del[i][jpp] - be[i][j]*del[ipp][j] - 
-                                bne[i][j]*del[ipp][jpp];
+                    del(i, j) = qp(i, j) - bn(i, j)*del(i, jpp) - be(i, j)*del(ipp, j) - 
+                                bne(i, j)*del(ipp, jpp);
                     
-                    phi[i][j] = phi[i][j] + del[i][j];
+                    phi(i, j) = phi(i, j) + del(i, j);
                     
                     // Handle periodic boundary condition
                     if (i == 0) {
-                        phi[n[0]-1][j] = phi[i][j];
+                        phi(n[0]-1, j) = phi(i, j);
                     }
                 }
             }
-
-            // cout << iter << " " << sumav << " " << tol << endl;
-
+            
             // Check convergence
             if (sumav < tol) {
                 break;
             }
         }
-        
-        // Clean up local arrays
-        deallocate2D(be, np1);
-        deallocate2D(bw, np1);
-        deallocate2D(bs, np1);
-        deallocate2D(bn, np1);
-        deallocate2D(bse, np1);
-        deallocate2D(bne, np1);
-        deallocate2D(bnw, np1);
-        deallocate2D(bsw, np1);
-        deallocate2D(bp, np1);
-        deallocate2D(res, np1);
-        deallocate2D(qp, np1);
-        deallocate2D(del, np1);
-        deallocate2D(phio, np1);
     }
 
-    void gauss(double **ap, double **ae, double **as, double **an, 
-               double **aw, double **ase, double **asw, double **ane, 
-               double **anw, double **ass, double **assee, double **assww,
-               double **asse, double **assw, double **asee, double **asww,
-               double **ann, double **annee, double **annww, double **anne, 
-               double **annw, double **anee, double **anww, double **aee, 
-               double **aww, double **phi, double **q) {
+    void gauss(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, blitz::Array<double, 2>& as, 
+            blitz::Array<double, 2>& an, blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
+            blitz::Array<double, 2>& asw, blitz::Array<double, 2>& ane, blitz::Array<double, 2>& anw, 
+            blitz::Array<double, 2>& ass, blitz::Array<double, 2>& assee, blitz::Array<double, 2>& assww,
+            blitz::Array<double, 2>& asse, blitz::Array<double, 2>& assw, blitz::Array<double, 2>& asee, 
+            blitz::Array<double, 2>& asww, blitz::Array<double, 2>& ann, blitz::Array<double, 2>& annee, 
+            blitz::Array<double, 2>& annww, blitz::Array<double, 2>& anne, blitz::Array<double, 2>& annw, 
+            blitz::Array<double, 2>& anee, blitz::Array<double, 2>& anww, blitz::Array<double, 2>& aee, 
+            blitz::Array<double, 2>& aww, blitz::Array<double, 2>& phi, blitz::Array<double, 2>& q) {
         
-        double **res = allocate2D(np1, np2);
-        double **phio = allocate2D(np1, np2);
+        int np1 = phi.extent(0);
+        int np2 = phi.extent(1);
+        
+        blitz::Array<double, 2> res(np1, np2);
+        blitz::Array<double, 2> phio(np1, np2);
+        
         double tol = 0.75e-2;
         int maxiter = 100000;
+        double sumnor = 1.0;
         
         for (int iter = 0; iter < maxiter; iter++) {
             
-            // Store old phi values
-            for (int i = 0; i < n[0]; i++) {
-                for (int j = 0; j < n[1]; j++) {
-                    phio[i][j] = phi[i][j];
-                }
-            }
+            // Store old phi values - VECTORIZED
+            phio = phi;
             
-            double ssum = 0.0;
+            // Initialize residual array
+            res = 0.0;
             
             // Compute residual
             for (int i = 0; i < n[0]-1; i++) {
                 for (int j = 1; j < n[1]-1; j++) {
-                    int inn = i-1;
-                    int inn2 = i-2;
+                    int inn = (i == 0) ? n[0]-2 : i-1;
+                    int inn2 = (i == 0) ? n[0]-3 : (i == 1) ? n[0]-2 : i-2;
                     int ipp = i+1;
-                    int ipp2 = i+2;
+                    int ipp2 = (i == n[0]-2) ? 1 : i+2;
                     
                     int jpp = j+1;
                     int jpp2 = j+2;
                     int jnn = j-1;
                     int jnn2 = j-2;
                     
-                    // Handle periodic boundary conditions
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        inn2 = n[0]-3;
-                    }
-                    
-                    if (i == 1) {
-                        inn2 = n[0]-2;
-                    }
-                    
-                    if (i == n[0]-2) {
-                        ipp2 = 1;
-                    }
-                    
                     // Compute residual based on order
                     if (j == 1 || j == n[1]-2) {
                         // Second order stencil
-                        res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
-                                    an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
-                                    aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
-                                    ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
-                                    ase[i][j]*phi[ipp][jnn];
+                        res(i, j) = q(i, j) - ap(i, j)*phi(i, j) - ae(i, j)*phi(ipp, j) - 
+                                    an(i, j)*phi(i, jpp) - as(i, j)*phi(i, jnn) - 
+                                    aw(i, j)*phi(inn, j) - anw(i, j)*phi(inn, jpp) - 
+                                    ane(i, j)*phi(ipp, jpp) - asw(i, j)*phi(inn, jnn) - 
+                                    ase(i, j)*phi(ipp, jnn);
                     } else {
                         // Fourth order stencil
-                        res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
-                                    an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
-                                    aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
-                                    ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
-                                    ase[i][j]*phi[ipp][jnn] - aee[i][j]*phi[ipp2][j] - 
-                                    aww[i][j]*phi[inn2][j] - annee[i][j]*phi[ipp2][jpp2] - 
-                                    anee[i][j]*phi[ipp2][jpp] - asee[i][j]*phi[ipp2][jnn] - 
-                                    assee[i][j]*phi[ipp2][jnn2] - anne[i][j]*phi[ipp][jpp2] - 
-                                    asse[i][j]*phi[ipp][jnn2] - annw[i][j]*phi[inn][jpp2] - 
-                                    assw[i][j]*phi[inn][jnn2] - annww[i][j]*phi[inn2][jpp2] - 
-                                    anww[i][j]*phi[inn2][jpp] - asww[i][j]*phi[inn2][jnn] - 
-                                    assww[i][j]*phi[inn2][jnn2] - ann[i][j]*phi[i][jpp2] - 
-                                    ass[i][j]*phi[i][jnn2];
+                        res(i, j) = q(i, j) - ap(i, j)*phi(i, j) - ae(i, j)*phi(ipp, j) - 
+                                    an(i, j)*phi(i, jpp) - as(i, j)*phi(i, jnn) - 
+                                    aw(i, j)*phi(inn, j) - anw(i, j)*phi(inn, jpp) - 
+                                    ane(i, j)*phi(ipp, jpp) - asw(i, j)*phi(inn, jnn) - 
+                                    ase(i, j)*phi(ipp, jnn) - aee(i, j)*phi(ipp2, j) - 
+                                    aww(i, j)*phi(inn2, j) - annee(i, j)*phi(ipp2, jpp2) - 
+                                    anee(i, j)*phi(ipp2, jpp) - asee(i, j)*phi(ipp2, jnn) - 
+                                    assee(i, j)*phi(ipp2, jnn2) - anne(i, j)*phi(ipp, jpp2) - 
+                                    asse(i, j)*phi(ipp, jnn2) - annw(i, j)*phi(inn, jpp2) - 
+                                    assw(i, j)*phi(inn, jnn2) - annww(i, j)*phi(inn2, jpp2) - 
+                                    anww(i, j)*phi(inn2, jpp) - asww(i, j)*phi(inn2, jnn) - 
+                                    assww(i, j)*phi(inn2, jnn2) - ann(i, j)*phi(i, jpp2) - 
+                                    ass(i, j)*phi(i, jnn2);
                     }
                     
-                    ssum += fabs(res[i][j]);
-                    // cout << "Ssum: " << ssum << endl;
-
                     // Handle periodic boundary condition
                     if (i == 0) {
-                        res[n[0]-1][j] = res[i][j];
+                        res(n[0]-1, j) = res(i, j);
                     }
                 }
             }
             
+            // Compute sum of absolute residuals - VECTORIZED
+            blitz::Range I(0, n[0]-2);
+            blitz::Range J(1, n[1]-2);
+            double ssum = sum(fabs(res(I, J)));
+            
             // Normalize residual for convergence check
-            double sumnor, sumav;
             if (iter == 0) {
                 if (ssum != 0.0) {
                     sumnor = ssum;
@@ -2440,76 +2464,56 @@ public:
                 }
             }
             
-            sumav = ssum / sumnor;
+            double sumav = ssum / sumnor;
             
             // Update phi values using Gauss-Seidel
             for (int i = 0; i < n[0]-1; i++) {
                 for (int j = 1; j < n[1]-1; j++) {
-                    int inn = i-1;
-                    int inn2 = i-2;
+                    int inn = (i == 0) ? n[0]-2 : i-1;
+                    int inn2 = (i == 0) ? n[0]-3 : (i == 1) ? n[0]-2 : i-2;
                     int ipp = i+1;
-                    int ipp2 = i+2;
+                    int ipp2 = (i == n[0]-2) ? 1 : i+2;
                     
                     int jpp = j+1;
                     int jpp2 = j+2;
                     int jnn = j-1;
                     int jnn2 = j-2;
                     
-                    // Handle periodic boundary conditions
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        inn2 = n[0]-3;
-                    }
-                    
-                    if (i == 1) {
-                        inn2 = n[0]-2;
-                    }
-                    
-                    if (i == n[0]-2) {
-                        ipp2 = 1;
-                    }
-                    
                     // Update phi based on order
                     if (j == 1 || j == n[1]-2) {
                         // Second order stencil
-                        phi[i][j] = (q[i][j] - ae[i][j]*phi[ipp][j] - an[i][j]*phi[i][jpp] - 
-                                    as[i][j]*phi[i][jnn] - aw[i][j]*phi[inn][j] - 
-                                    anw[i][j]*phi[inn][jpp] - ane[i][j]*phi[ipp][jpp] - 
-                                    asw[i][j]*phi[inn][jnn] - ase[i][j]*phi[ipp][jnn]) / ap[i][j];
+                        phi(i, j) = (q(i, j) - ae(i, j)*phi(ipp, j) - an(i, j)*phi(i, jpp) - 
+                                    as(i, j)*phi(i, jnn) - aw(i, j)*phi(inn, j) - 
+                                    anw(i, j)*phi(inn, jpp) - ane(i, j)*phi(ipp, jpp) - 
+                                    asw(i, j)*phi(inn, jnn) - ase(i, j)*phi(ipp, jnn)) / ap(i, j);
                     } else {
                         // Fourth order stencil
-                        phi[i][j] = (q[i][j] - ae[i][j]*phi[ipp][j] - an[i][j]*phi[i][jpp] - 
-                                    as[i][j]*phi[i][jnn] - aw[i][j]*phi[inn][j] - 
-                                    anw[i][j]*phi[inn][jpp] - ane[i][j]*phi[ipp][jpp] - 
-                                    asw[i][j]*phi[inn][jnn] - ase[i][j]*phi[ipp][jnn] - 
-                                    aee[i][j]*phi[ipp2][j] - aww[i][j]*phi[inn2][j] - 
-                                    annee[i][j]*phi[ipp2][jpp2] - anee[i][j]*phi[ipp2][jpp] - 
-                                    asee[i][j]*phi[ipp2][jnn] - assee[i][j]*phi[ipp2][jnn2] - 
-                                    anne[i][j]*phi[ipp][jpp2] - asse[i][j]*phi[ipp][jnn2] - 
-                                    annw[i][j]*phi[inn][jpp2] - assw[i][j]*phi[inn][jnn2] - 
-                                    annww[i][j]*phi[inn2][jpp2] - anww[i][j]*phi[inn2][jpp] - 
-                                    asww[i][j]*phi[inn2][jnn] - assww[i][j]*phi[inn2][jnn2] - 
-                                    ann[i][j]*phi[i][jpp2] - ass[i][j]*phi[i][jnn2]) / ap[i][j];
+                        phi(i, j) = (q(i, j) - ae(i, j)*phi(ipp, j) - an(i, j)*phi(i, jpp) - 
+                                    as(i, j)*phi(i, jnn) - aw(i, j)*phi(inn, j) - 
+                                    anw(i, j)*phi(inn, jpp) - ane(i, j)*phi(ipp, jpp) - 
+                                    asw(i, j)*phi(inn, jnn) - ase(i, j)*phi(ipp, jnn) - 
+                                    aee(i, j)*phi(ipp2, j) - aww(i, j)*phi(inn2, j) - 
+                                    annee(i, j)*phi(ipp2, jpp2) - anee(i, j)*phi(ipp2, jpp) - 
+                                    asee(i, j)*phi(ipp2, jnn) - assee(i, j)*phi(ipp2, jnn2) - 
+                                    anne(i, j)*phi(ipp, jpp2) - asse(i, j)*phi(ipp, jnn2) - 
+                                    annw(i, j)*phi(inn, jpp2) - assw(i, j)*phi(inn, jnn2) - 
+                                    annww(i, j)*phi(inn2, jpp2) - anww(i, j)*phi(inn2, jpp) - 
+                                    asww(i, j)*phi(inn2, jnn) - assww(i, j)*phi(inn2, jnn2) - 
+                                    ann(i, j)*phi(i, jpp2) - ass(i, j)*phi(i, jnn2)) / ap(i, j);
                     }
                     
                     // Handle periodic boundary condition
                     if (i == 0) {
-                        phi[n[0]-1][j] = phi[i][j];
+                        phi(n[0]-1, j) = phi(i, j);
                     }
                 }
             }
-
-            // cout << "Iteration: " << iter << " " << sumav << " " << tol << endl;
-
+            
             // Check convergence
             if (sumav < tol) {
                 break;
             }
         }
-        
-        // Clean up local arrays
-        deallocate2D(res, np1);
-        deallocate2D(phio, np1);
     }
 };
 
