@@ -11,8 +11,8 @@ std::string INPUT_FILE = "INP.DAT";
 
 class Solver {
 public:
-    static constexpr int np1 = 350; //213
-    static constexpr int np2 = 570; //420
+    static constexpr int np1 = 213; //350
+    static constexpr int np2 = 420; //570
     int snapshot_count;
 
     // 2D coefficient matrices (pressure equation) - converted to pointers
@@ -125,8 +125,8 @@ public:
     blitz::Array<double, 2> sol{np1, np2};
     blitz::Array<double, 2> pcor{np1, np2};
     blitz::Array<double, 2> p{np1, np2};
-    blitz::Array<double, 2> uxi{np1, np2};
-    blitz::Array<double, 2> uet{np1, np2};
+    blitz::Array<double, 3> uxi{3, np1, np2};
+    blitz::Array<double, 3> uet{3, np1, np2};
     blitz::Array<double, 2> vort{np1, np2};
 
     // 3D arrays - converted to triple pointers
@@ -155,16 +155,6 @@ public:
 
     blitz::Array<double, 1> dxi{3};
 
-    // 2D coefficient matrices (pressure equation)
-    blitz::Array<double, 2> ae{np1, np2};
-    blitz::Array<double, 2> aw{np1, np2};
-    blitz::Array<double, 2> an{np1, np2};
-    blitz::Array<double, 2> as{np1, np2};
-    blitz::Array<double, 2> ane{np1, np2};
-    blitz::Array<double, 2> ase{np1, np2};
-    blitz::Array<double, 2> asw{np1, np2};
-    blitz::Array<double, 2> anw{np1, np2};
-    blitz::Array<double, 2> ap{np1, np2};
 
     // Scalar variables (REAL*8 declarations)
     double Nuss, p_grid, a_grid, ar, aaa, bbb, sgn, f_ar;
@@ -196,7 +186,7 @@ public:
     int iflag = 1;
 
     // extra varibles
-    int loop, time, iiflag, inn, ipp, jnn, jpp;
+    int loop, time, iiflag;
     double t_period, icycles, tstart, t_incr, i_loop, loop_snap, dmax;
 
     Solver(): snapshot_count(0) {
@@ -265,9 +255,9 @@ public:
         std::ofstream bound_file("bound.dat");
         for (int j = 0; j < n[1]; j+=n[1]-1) {
             for (int i = 0; i < n[0]; i++) {
-                bound_file << i << " " << j << " " << x[0][i][j] << " " << x[1][i][j] << " " << " 1" << std::endl;
+                bound_file << i << " " << j << " " << x(0,i,j) << " " << x(1,i,j) << " " << " 1" << std::endl;
             }
-            bound_file << std::endl; 
+            bound_file << std::endl;
         }
         bound_file.close();
 
@@ -378,20 +368,20 @@ public:
               u(1,blitz::Range(0,n[0]-2),j)*xnoy(blitz::Range(0,n[0]-2));
 
         blitz::Range I(0,n[0]-2);
-        u(0, I, j) = where(vnn>=0, uinf, u(0, I, jnn));
-        u(1, I, j) = where(vnn>=0, vinf, u(1, I, jnn));
-        u(2, I, j) = where(vnn>=0, 0.0, u(2, I, jnn));
+        u(0, I, j) = where(vnn(I)>=0, uinf, u(0, I, jnn));
+        u(1, I, j) = where(vnn(I)>=0, vinf, u(1, I, jnn));
+        u(2, I, j) = where(vnn(I)>=0, 0.0, u(2, I, jnn));
 
-        up(0, I, j) = where(vnn >= 0, uinf, up(0, I, j));
-        up(1, I, j) = where(vnn >= 0, vinf, up(1, I, j));
-        
+        up(0, I, j) = where(vnn(I) >= 0, uinf, up(0, I, j));
+        up(1, I, j) = where(vnn(I) >= 0, vinf, up(1, I, j));
+
         // continious boundary
         u(blitz::Range::all(), n[0]-1, j) = u(blitz::Range::all(), 0, j);
 
         // forming coeff matrix for velocity
         // cout << "Forming coefficient matrix for velocity..." << endl;
 
-        blitz::Range I(0,n[0]-2);
+        I = blitz::Range(0,n[0]-2);
         j=1;
         aue(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))+p1(I, j)/(2.0*dxi(0)))/Re;
         auw(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))-p1(I, j)/(2.0*dxi(0)))/Re;
@@ -532,8 +522,8 @@ public:
         // Forming a matrix for Pressure
         // cout << "Forming matrix for pressure..." << endl;
 
-        blitz::Range I(1,n[0]-2);
-        blitz::Range J(1,n[1]-2);
+        I = blitz::Range(1,n[0]-2);
+        J = blitz::Range(1,n[1]-2);
         double factor_00 =  dxi(0) * dxi(0);
         double factor_01 =  dxi(0) * dxi(1);
         double factor_11 =  dxi(1) * dxi(1);
@@ -703,7 +693,7 @@ public:
         ap(0,J-1) = aap(0,J-1) + bbp(0,J-1) + ccp(0,J-1) + ddp(0,J-1);
         // -------------------------------------------------------------------
 
-        blitz::Range J(0,n[1]-3);
+        J = blitz::Range(0,n[1]-3);
         // If i = 0 copying 0 -> n[0]-1
         ae(n[0]-1,J) = ae(0,J);
         aw(n[0]-1,J) = aw(0,J);
@@ -715,8 +705,8 @@ public:
         ase(n[0]-1,J) = ase(0,J);
         ap(n[0]-1,J) = ap(0,J);
 
-        blitz::Range I(0,n[0]-2);
-        blitz::Range J(0,n[1]-3);
+        I = blitz::Range(0,n[0]-2);
+        J = blitz::Range(0,n[1]-3);
 
         // Summation of all components to form a matrix
         ae(I,J+1) = aae(I,J)+bbe(I,J)+cce(I,J)+dde(I,J);
@@ -743,9 +733,10 @@ public:
         // cout << "Starting time loop..." << endl;
         
         auto start = std::chrono::high_resolution_clock::now();
-        
+        std::cout << "Go" << std::endl;
         // Outer loop
         for(loop=0;loop<MAXSTEP;loop++){
+
             time = time + dt;
 
             // cout << "Calculating flow field inside domain (U in xi and eta)..." << endl;
@@ -755,8 +746,15 @@ public:
             
             // Flow Field inside domain
             // U in xi and eta
-            uxi(I,J) = dxix(I,J)*u(0,I,J)+dxiy(I,J)*u(1,I,J);
-            uet(I,J) = dex(I,J)*u(0,I,J)+dey(I,J)*u(1,I,J);
+            uxi(0,I,J) = dxix(I,J)*u(0,I,J)+dxiy(I,J)*u(1,I,J);
+            uet(0,I,J) = dex(I,J)*u(0,I,J)+dey(I,J)*u(1,I,J);
+
+            // copying same slice of uxi & uet in k=1 and k=2
+            uxi(1,I,J) = uxi(0,I,J);
+            uxi(2,I,J) = uxi(0,I,J);
+            uet(1,I,J) = uet(0,I,J);
+            uet(2,I,J) = uet(0,I,J);
+
             uold(2,I,J) = u(2,I,J);
 
             // Convection term
@@ -770,14 +768,17 @@ public:
             blitz::Array<double,3> pec1{3, n[0],n[1]};
             blitz::Array<double,3> pec2{3, n[0],n[1]};
 
-            blitz::Range I(0,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(0,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             blitz::Range K(0,1);
 
             // convective term in xi direction
             // when k<=1
-            pec1(K, I,J) = uxi(I,J)*Re*dxi(0)/alph(I,J);
-            pec2(K, I,J) = uet(I,J)*Re*dxi(1)/gamma(I,J);
+            pec1(0,I,J) = uxi(0,I,J)*Re*dxi(0)/alph(I,J);
+            pec2(0,I,J) = uet(0,I,J)*Re*dxi(1)/gamma(I,J);
+
+            pec1(1,I,J) = uxi(1,I,J)*Re*dxi(0)/alph(I,J);
+            pec2(1,I,J) = uet(1,I,J)*Re*dxi(1)/gamma(I,J);
             // when k=2
             pec1(2,I,J) = pec1(0,I,J)*Pr;
             pec2(2,I,J) = pec2(0,I,J)*Pr;
@@ -786,8 +787,8 @@ public:
             //CENTER AND CENTRAL AT BOUNDARY + HYBRID DIFFERENCING
             // Calculating du_xi
             // 1--------j є [2,n[1]-3]--------------------------------------
-            blitz::Range J(2,n[1]-3);
-            blitz::Range K(0,2);
+            J = blitz::Range(2,n[1]-3);
+            K = blitz::Range(0,2);
 
             blitz::Array<double,3> xpp{3,n[0],n[1]};
             blitz::Array<double,3> xnn{3,n[0],n[1]};
@@ -803,23 +804,23 @@ public:
             inn = n[0]-2;
             inn2 = n[0]-3;
             //CENTRAL 4TH ORDER
-            xpp(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
-                         8.0*(u(K,ipp,J)-u(K,inn,J)),
-                         xpp(K,i,J));
-            xnn(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
-                         u(K,ipp2,J)-u(K,inn2,J),
-                         xnn(K,i,J));
+            xpp(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
+                               8.0*(u(K,ipp,J)-u(K,inn,J)),
+                               xpp(K,i,J));
+            xnn(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
+                               u(K,ipp2,J)-u(K,inn2,J),
+                               xnn(K,i,J));
             //UPWIND 3RD ORDER
-            ak1(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         uxi(i,J) * (-u(K,ipp2,J)+8*u(K,ipp,J)-8*u(K,inn,J)+u(K,inn2,J))/(12.0*dxi(0)),
-                         ak1(K,i,J));
-            ak2(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         fabs(uxi(i,J) * (u(K,ipp2,J)-4*u(K,ipp,J)+6*u(K,i,J)-4*u(K,inn,J)+u(K,inn2,J))/(4.0*dxi(0))),
-                         ak2(K,i,J));
+            ak1(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                               uxi(K,i,J) * (-u(K,ipp2,J)+8*u(K,ipp,J)-8*u(K,inn,J)+u(K,inn2,J))/(12.0*dxi(0)),
+                               ak1(K,i,J));
+            ak2(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                               fabs(uxi(K,i,J) * (u(K,ipp2,J)-4*u(K,ipp,J)+6*u(K,i,J)-4*u(K,inn,J)+u(K,inn2,J))/(4.0*dxi(0))),
+                               ak2(K,i,J));
 
-            du_xi(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
-                         (1.0/12.0)*(xpp(K,i,J)-xnn(K,i,J))/dxi(0),
-                         (ak1(K,i,J)+ak2(K,i,J))/uxi(i,J));
+            du_xi(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
+                                 (1.0/12.0)*(xpp(K,i,J)-xnn(K,i,J))/dxi(0),
+                                 (ak1(K,i,J)+ak2(K,i,J))/uxi(K,i,J));
 
             // 1.2------i = 1 ----------------------------------------------
             i = 1;
@@ -828,44 +829,44 @@ public:
             inn = 0;
             inn2 = n[0]-2;
             //CENTRAL 4TH ORDER
-            xpp(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            xpp(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          8.0*(u(K,ipp,J)-u(K,inn,J)),
                          xpp(K,i,J));
-            xnn(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            xnn(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          u(K,ipp2,J)-u(K,inn2,J),
                          xnn(K,i,J));
             //UPWIND 3RD ORDER
-            ak1(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         uxi(i,J) * (-u(K,ipp2,J)+8*u(K,ipp,J)-8*u(K,inn,J)+u(K,inn2,J))/(12.0*dxi(0)),
+            ak1(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         uxi(K,i,J) * (-u(K,ipp2,J)+8*u(K,ipp,J)-8*u(K,inn,J)+u(K,inn2,J))/(12.0*dxi(0)),
                          ak1(K,i,J));
-            ak2(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         fabs(uxi(i,J) * (u(K,ipp2,J)-4*u(K,ipp,J)+6*u(K,i,J)-4*u(K,inn,J)+u(K,inn2,J))/(4.0*dxi(0))),
+            ak2(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         fabs(uxi(K,i,J) * (u(K,ipp2,J)-4*u(K,ipp,J)+6*u(K,i,J)-4*u(K,inn,J)+u(K,inn2,J))/(4.0*dxi(0))),
                          ak2(K,i,J));
             
-            du_xi(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            du_xi(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          (1.0/12.0)*(xpp(K,i,J)-xnn(K,i,J))/dxi(0),
-                         (ak1(K,i,J)+ak2(K,i,J))/uxi(i,J));
+                         (ak1(K,i,J)+ak2(K,i,J))/uxi(K,i,J));
 
             // 1.3------i є [2,n[0]-3]--------------------------------------
-            blitz::Range I(2,n[0]-3);
+            I = blitz::Range(2,n[0]-3);
             //CENTRAL 4TH ORDER
-            xpp(K,I,J) = where(pec1(K,I,J) <= 2 && pec2(K,I,J) > -2,
+            xpp(K,I,J) = where(pec1(K,I,J) <= 2 & pec2(K,I,J) > -2,
                          8.0*(u(K,I+1,J)-u(K,I-1,J)),
                          xpp(K,I,J));
-            xnn(K,I,J) = where(pec1(K,I,J) <= 2 && pec2(K,I,J) > -2,
+            xnn(K,I,J) = where(pec1(K,I,J) <= 2 & pec2(K,I,J) > -2,
                          u(K,I+2,J)-u(K,I-2,J),
                          xnn(K,I,J));
             //UPWIND 3RD ORDER
-            ak1(K,I,J) = where(pec1(K,I,J) > 2 && pec2(K,I,J) <= -2,
-                         uxi(I,J) * (-u(K,I+2,J)+8*u(K,I+1,J)-8*u(K,I-1,J)+u(K,I-2,J))/(12.0*dxi(0)),
+            ak1(K,I,J) = where(pec1(K,I,J) > 2 & pec2(K,I,J) <= -2,
+                         uxi(K,I,J) * (-u(K,I+2,J)+8*u(K,I+1,J)-8*u(K,I-1,J)+u(K,I-2,J))/(12.0*dxi(0)),
                          ak1(K,I,J));
-            ak2(K,I,J) = where(pec1(K,I,J) > 2 && pec2(K,I,J) <= -2,
-                         fabs(uxi(I,J) * (u(K,I+2,J)-4*u(K,I+1,J)+6*u(K,I,J)-4*u(K,I-1,J)+u(K,I-2,J))/(4.0*dxi(0))),
+            ak2(K,I,J) = where(pec1(K,I,J) > 2 & pec2(K,I,J) <= -2,
+                         fabs(uxi(K,I,J) * (u(K,I+2,J)-4*u(K,I+1,J)+6*u(K,I,J)-4*u(K,I-1,J)+u(K,I-2,J))/(4.0*dxi(0))),
                          ak2(K,I,J));
 
-            du_xi(K,I,J) = where(pec1(K,I,J) <= 2 && pec2(K,I,J) > -2,
+            du_xi(K,I,J) = where(pec1(K,I,J) <= 2 & pec2(K,I,J) > -2,
                          (1.0/12.0)*(xpp(K,I,J)-xnn(K,I,J))/dxi(0),
-                         (ak1(K,I,J)+ak2(K,I,J))/uxi(I,J));
+                         (ak1(K,I,J)+ak2(K,I,J))/uxi(K,I,J));
 
             // 1.4------i = (n-2) ------------------------------------------
             i = n[0]-2;
@@ -874,23 +875,23 @@ public:
             inn = i-1;
             inn2 = i-2;
             //CENTRAL 4TH ORDER
-            xpp(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            xpp(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          8.0*(u(K,ipp,J)-u(K,inn,J)),
                          xpp(K,i,J));
-            xnn(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            xnn(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          u(K,ipp2,J)-u(K,inn2,J),
                          xnn(K,i,J));
             //UPWIND 3RD ORDER
-            ak1(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         uxi(i,J) * (-u(K,ipp2,J)+8*u(K,ipp,J)-8*u(K,inn,J)+u(K,inn2,J))/(12.0*dxi(0)),
+            ak1(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         uxi(K,i,J) * (-u(K,ipp2,J)+8*u(K,ipp,J)-8*u(K,inn,J)+u(K,inn2,J))/(12.0*dxi(0)),
                          ak1(K,i,J));
-            ak2(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         fabs(uxi(i,J) * (u(K,ipp2,J)-4*u(K,ipp,J)+6*u(K,i,J)-4*u(K,inn,J)+u(K,inn2,J))/(4.0*dxi(0))),
+            ak2(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         fabs(uxi(K,i,J) * (u(K,ipp2,J)-4*u(K,ipp,J)+6*u(K,i,J)-4*u(K,inn,J)+u(K,inn2,J))/(4.0*dxi(0))),
                          ak2(K,i,J));
 
-            du_xi(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            du_xi(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          (1.0/12.0)*(xpp(K,i,J)-xnn(K,i,J))/dxi(0),
-                         (ak1(K,i,J)+ak2(K,i,J))/uxi(i,J));
+                         (ak1(K,i,J)+ak2(K,i,J))/uxi(K,i,J));
             
             // 2--------j = 1-----------------------------------------------
             j = 1;
@@ -917,7 +918,7 @@ public:
             du_xi(K,i,j) = (1.0/12.0)*(xpp(K,i,j)-xnn(K,i,j))/dxi(0);
 
             // 2.3------i є [2,n[0]-3]--------------------------------------
-            blitz::Range I(2,n[0]-3);
+            I = blitz::Range(2,n[0]-3);
             xpp(K,I,j) = 8.0*(u(K,I+1,j)-u(K,I-1,j));
             xnn(K,I,j) = u(K,I+2,j)-u(K,I-2,j);
             du_xi(K,I,j) = (1.0/12.0)*(xpp(K,I,j)-xnn(K,I,j))/dxi(0);
@@ -958,7 +959,7 @@ public:
             du_xi(K,i,j) = (1.0/12.0)*(xpp(K,i,j)-xnn(K,i,j))/dxi(0);
             
             // 3.3------i є [2,n[0]-3]--------------------------------------
-            blitz::Range I(2,n[0]-3);
+            I = blitz::Range(2,n[0]-3);
             xpp(K,I,j) = 8.0*(u(K,I+1,j)-u(K,I-1,j));
             xnn(K,I,j) = u(K,I+2,j)-u(K,I-2,j);
             du_xi(K,I,j) = (1.0/12.0)*(xpp(K,I,j)-xnn(K,I,j))/dxi(0);
@@ -975,8 +976,8 @@ public:
 
             // Calculating du_et
             // 1--------j є [2,n[1]-3]--------------------------------------
-            blitz::Range J(2,n[1]-3);
-            blitz::Range K(0,2);
+            J = blitz::Range(2,n[1]-3);
+            K = blitz::Range(0,2);
 
             blitz::Array<double,3> ypp{3,n[0],n[1]};
             blitz::Array<double,3> ynn{3,n[0],n[1]};
@@ -992,23 +993,23 @@ public:
             inn = n[0]-2;
             inn2 = n[0]-3;
             //CENTRAL 4TH ORDER
-            ypp(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            ypp(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          8.0*(u(K,i,J+1)-u(K,inn,J-1)),
                          ypp(K,i,J));
-            ynn(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            ynn(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          u(K,i,J+2)-u(K,i,J-2),
                          ynn(K,i,J));
             //UPWIND 3RD ORDER
-            ak3(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         uxi(i,J) * (-u(K,i,J+2)+8*u(K,i,J+1)-8*u(K,i,J-1)+u(K,i,J-2))/(12.0*dxi(1)),
+            ak3(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         uxi(K,i,J) * (-u(K,i,J+2)+8*u(K,i,J+1)-8*u(K,i,J-1)+u(K,i,J-2))/(12.0*dxi(1)),
                          ak3(K,i,J));
-            ak4(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         fabs(uxi(i,J) * (u(K,i,J+2)-4*u(K,i,J+1)+6*u(K,i,J)-4*u(K,i,J-1)+u(K,i,J-2))/(4.0*dxi(1))),
+            ak4(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         fabs(uxi(K,i,J) * (u(K,i,J+2)-4*u(K,i,J+1)+6*u(K,i,J)-4*u(K,i,J-1)+u(K,i,J-2))/(4.0*dxi(1))),
                          ak4(K,i,J));
             
-            du_et(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            du_et(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          (1.0/12.0)*(ypp(K,i,J)-ynn(K,i,J))/dxi(1),
-                         (ak3(K,i,J)+ak4(K,i,J))/uet(i,J));                         
+                         (ak3(K,i,J)+ak4(K,i,J))/uet(K,i,J));                         
 
             // 1.2------i = 1 ----------------------------------------------
             i = 1;
@@ -1017,44 +1018,44 @@ public:
             inn = i-1;
             inn2 = n[0]-2;
             //CENTRAL 4TH ORDER
-            ypp(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            ypp(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          8.0*(u(K,i,J+1)-u(K,inn,J-1)),
                          ypp(K,i,J));
-            ynn(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            ynn(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          u(K,i,J+2)-u(K,i,J-2),
                          ynn(K,i,J));
             //UPWIND 3RD ORDER
-            ak3(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         uxi(i,J) * (-u(K,i,J+2)+8*u(K,i,J+1)-8*u(K,i,J-1)+u(K,i,J-2))/(12.0*dxi(1)),
+            ak3(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         uxi(K,i,J) * (-u(K,i,J+2)+8*u(K,i,J+1)-8*u(K,i,J-1)+u(K,i,J-2))/(12.0*dxi(1)),
                          ak3(K,i,J));
-            ak4(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         fabs(uxi(i,J) * (u(K,i,J+2)-4*u(K,i,J+1)+6*u(K,i,J)-4*u(K,i,J-1)+u(K,i,J-2))/(4.0*dxi(1))),
+            ak4(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         fabs(uxi(K,i,J) * (u(K,i,J+2)-4*u(K,i,J+1)+6*u(K,i,J)-4*u(K,i,J-1)+u(K,i,J-2))/(4.0*dxi(1))),
                          ak4(K,i,J));
                          
-            du_et(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            du_et(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          (1.0/12.0)*(ypp(K,i,J)-ynn(K,i,J))/dxi(1),
-                         (ak3(K,i,J)+ak4(K,i,J))/uet(i,J));
+                         (ak3(K,i,J)+ak4(K,i,J))/uet(K,i,J));
 
             // 1.3------i є [2,n[0]-3]--------------------------------------
-            blitz::Range I(2,n[0]-3);
+            I = blitz::Range(2,n[0]-3);
             //CENTRAL 4TH ORDER
-            ypp(K,I,J) = where(pec1(K,I,J) <= 2 && pec2(K,I,J) > -2,
-                         8.0*(u(K,I,J+1)-u(K,inn,J-1)),
+            ypp(K,I,J) = where(pec1(K,I,J) <= 2 & pec2(K,I,J) > -2,
+                         8.0*(u(K,I,J+1)-u(K,I,J-1)),
                          ypp(K,I,J));
-            ynn(K,I,J) = where(pec1(K,I,J) <= 2 && pec2(K,I,J) > -2,
+            ynn(K,I,J) = where(pec1(K,I,J) <= 2 & pec2(K,I,J) > -2,
                          u(K,I,J+2)-u(K,I,J-2),
                          ynn(K,I,J));
             //UPWIND 3RD ORDER
-            ak3(K,I,J) = where(pec1(K,I,J) > 2 && pec2(K,I,J) <= -2,
-                         uxi(I,J) * (-u(K,I,J+2)+8*u(K,I,J+1)-8*u(K,I,J-1)+u(K,I,J-2))/(12.0*dxi(1)),
+            ak3(K,I,J) = where(pec1(K,I,J) > 2 & pec2(K,I,J) <= -2,
+                         uxi(K,I,J) * (-u(K,I,J+2)+8*u(K,I,J+1)-8*u(K,I,J-1)+u(K,I,J-2))/(12.0*dxi(1)),
                          ak3(K,I,J));
-            ak4(K,I,J) = where(pec1(K,I,J) > 2 && pec2(K,I,J) <= -2,
-                         fabs(uxi(I,J) * (u(K,I,J+2)-4*u(K,I,J+1)+6*u(K,I,J)-4*u(K,I,J-1)+u(K,I,J-2))/(4.0*dxi(1))),
+            ak4(K,I,J) = where(pec1(K,I,J) > 2 & pec2(K,I,J) <= -2,
+                         fabs(uxi(K,I,J) * (u(K,I,J+2)-4*u(K,I,J+1)+6*u(K,I,J)-4*u(K,I,J-1)+u(K,I,J-2))/(4.0*dxi(1))),
                          ak4(K,I,J));
 
-            du_et(K,I,J) = where(pec1(K,I,J) <= 2 && pec2(K,I,J) > -2,
+            du_et(K,I,J) = where(pec1(K,I,J) <= 2 & pec2(K,I,J) > -2,
                          (1.0/12.0)*(ypp(K,I,J)-ynn(K,I,J))/dxi(1),
-                         (ak3(K,I,J)+ak4(K,I,J))/uet(I,J));
+                         (ak3(K,I,J)+ak4(K,I,J))/uet(K,I,J));
 
             // 1.4------i = (n-2) ------------------------------------------
             i = n[0]-2;
@@ -1063,23 +1064,23 @@ public:
             inn = i-1;
             inn2 = i-2;
             //CENTRAL 4TH ORDER
-            ypp(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            ypp(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          8.0*(u(K,i,J+1)-u(K,inn,J-1)),
                          ypp(K,i,J));
-            ynn(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            ynn(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          u(K,i,J+2)-u(K,i,J-2),
                          ynn(K,i,J));
             //UPWIND 3RD ORDER
-            ak3(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         uxi(i,J) * (-u(K,i,J+2)+8*u(K,i,J+1)-8*u(K,i,J-1)+u(K,i,J-2))/(12.0*dxi(1)),
+            ak3(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         uxi(K,i,J) * (-u(K,i,J+2)+8*u(K,i,J+1)-8*u(K,i,J-1)+u(K,i,J-2))/(12.0*dxi(1)),
                          ak3(K,i,J));
-            ak4(K,i,J) = where(pec1(K,i,J) > 2 && pec2(K,i,J) <= -2,
-                         fabs(uxi(i,J) * (u(K,i,J+2)-4*u(K,i,J+1)+6*u(K,i,J)-4*u(K,i,J-1)+u(K,i,J-2))/(4.0*dxi(1))),
+            ak4(K,i,J) = where(pec1(K,i,J) > 2 & pec2(K,i,J) <= -2,
+                         fabs(uxi(K,i,J) * (u(K,i,J+2)-4*u(K,i,J+1)+6*u(K,i,J)-4*u(K,i,J-1)+u(K,i,J-2))/(4.0*dxi(1))),
                          ak4(K,i,J));
 
-            du_et(K,i,J) = where(pec1(K,i,J) <= 2 && pec2(K,i,J) > -2,
+            du_et(K,i,J) = where(pec1(K,i,J) <= 2 & pec2(K,i,J) > -2,
                          (1.0/12.0)*(ypp(K,i,J)-ynn(K,i,J))/dxi(1),
-                         (ak3(K,i,J)+ak4(K,i,J))/uet(i,J));     
+                         (ak3(K,i,J)+ak4(K,i,J))/uet(K,i,J));     
 
             // 2--------j = 1-----------------------------------------------
             j = 1;
@@ -1087,7 +1088,7 @@ public:
             jnn = j-1;
             //NEAR BOUNDARY ALWAYS CENTRAL	
             // ------i є [0,n[0]-2]--------------------------------------
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
             du_et(K,I,j) = 0.5*(u(K,I,jpp)-u(K,I,jnn))/dxi(1);
 
             // 3--------j = n[1]-2-----------------------------------------------
@@ -1096,21 +1097,21 @@ public:
             jnn = j-1;
             //NEAR BOUNDARY ALWAYS CENTRAL	
             // ------i є [0,n[0]-2]--------------------------------------
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
             du_et(K,I,j) = 0.5*(u(K,I,jpp)-u(K,I,jnn))/dxi(1);
             
             // conv calculated
-            blitz::Range I(0,n[0]-2);
-            blitz::Range J(1,n[1]-2);
-            blitz::Range K(0,2);
-            conv(K,I,J) = uxi(I,J)*du_xi(K,I,J) + uet(I,J)*du_et(K,I,J); 
+            I = blitz::Range(0,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
+            K = blitz::Range(0,2);
+            conv(K,I,J) = uxi(K,I,J)*du_xi(K,I,J) + uet(K,I,J)*du_et(K,I,J);
 
             // ---------------------------------------------------
             // DIFFUSION
             // ---------------------------------------------------
 
             // Guessed velocity field (star)
-            blitz::Range J(1,n[1]-2);
+            J = blitz::Range(1,n[1]-2);
 
             blitz::Array<double, 2> dp_dxi{n[0], n[1]};
             blitz::Array<double, 2> dp_de{n[0], n[1]};
@@ -1121,21 +1122,21 @@ public:
             i = 0;
             ipp = i+1;
             inn = n[0]-2;
-            dp_dxi(i,J) = (p(ipp,J) - p(inn,J)) / (2.0 * dxi[0]);
-            dp_de(i,J) = (p(i,J+1) - p(i,J-1)) / (2.0 * dxi[1]);
+            dp_dxi(i,J) = (p(ipp,J) - p(inn,J)) / (2.0 * dxi(0));
+            dp_de(i,J) = (p(i,J+1) - p(i,J-1)) / (2.0 * dxi(1));
 
             // ------i є [1,n[0]-2]--------------------------------------
-            blitz::Range I(1,n[0]-2);
-            dp_dxi(I,J) = (p(I+1,J) - p(I-1,J)) / (2.0 * dxi[0]);
-            dp_de(I,J) = (p(I,J+1) - p(I,J-1)) / (2.0 * dxi[1]);
+            I = blitz::Range(1,n[0]-2);
+            dp_dxi(I,J) = (p(I+1,J) - p(I-1,J)) / (2.0 * dxi(0));
+            dp_de(I,J) = (p(I,J+1) - p(I,J-1)) / (2.0 * dxi(1));
 
             blitz::Array<double, 2> qu{n[0], n[1]};
             blitz::Array<double, 2> qv{n[0], n[1]};
             blitz::Array<double, 2> qt{n[0], n[1]};
             blitz::Array<double, 2> qup{n[0], n[1]};
             blitz::Array<double, 2> qvp{n[0], n[1]};
-            blitz::Range I(0,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(0,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             dp_dx(I,J) = dxix(I,J) * dp_dxi(I,J) + dex(I,J) * dp_de(I,J);
             dp_dy(I,J) = dxiy(I,J) * dp_dxi(I,J) + dey(I,J) * dp_de(I,J);
 
@@ -1146,7 +1147,7 @@ public:
             qup(I,J) = qu(I,J) + dt * dp_dx(I,J);
             qvp(I,J) = qv(I,J) + dt * dp_dy(I,J);
 
-            // (j=1) && (j=n[1]-2) for all i
+            // (j=1) & (j=n[1]-2) for all i
             blitz::Array<double, 2> sumu{4, n[0]};
             blitz::Array<double, 2> sumv{4, n[0]};
             blitz::Array<double, 2> sumt{2, n[0]};
@@ -1166,7 +1167,7 @@ public:
             sumv(2,i) = bus(i) * up(1,i,jnn) + buse(i) * up(1,ipp,jnn) + busw(i) * up(1,inn,jnn);
             
             // ------i є [1,n[0]-2]-----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
             sumu(0,I) = bus(I) * u(0,I,jnn) + buse(I) * u(0,I+1,jnn) + busw(I) * u(0,I-1,jnn);
             sumv(0,I) = bus(I) * u(1,I,jnn) + buse(I) * u(1,I+1,jnn) + busw(I) * u(1,I-1,jnn);
             sumt(0,I) = bts(I) * u(2,I,jnn) + btse(I) * u(2,I+1,jnn) + btsw(I) * u(2,I-1,jnn);
@@ -1189,7 +1190,7 @@ public:
             sumv(3,i) = bun(i) * up(1,i,jpp) + bune(i) * up(1,ipp,jpp) + bunw(i) * up(1,inn,jpp);
 
             // ------i є [1,n[0]-2]-----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
             sumu(0,I) = bus(I) * u(0,I,jpp) + buse(I) * u(0,I+1,jpp) + busw(I) * u(0,I-1,jpp);
             sumv(0,I) = bus(I) * u(1,I,jpp) + buse(I) * u(1,I+1,jpp) + busw(I) * u(1,I-1,jpp);
             sumt(0,I) = bts(I) * u(2,I,jpp) + btse(I) * u(2,I+1,jpp) + btsw(I) * u(2,I-1,jpp);
@@ -1198,7 +1199,7 @@ public:
             sumv(3,I) = bun(I) * up(1,I,jpp) + bune(I) * up(1,I+1,jpp) + bunw(I) * up(1,I-1,jpp);
 
 
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
             j = 1;
             qu(I,j) = qu(I,j) - sumu(0,I);
             qv(I,j) = qv(I,j) - sumv(0,I);
@@ -1214,7 +1215,7 @@ public:
             qvp(I,j) = qvp(I,j) - sumv(3,I);
 
             // copy first element to last
-            blitz::Range J(1,n[1]-2);
+            J = blitz::Range(1,n[1]-2);
             qu(n[0]-1,J) = qu(0,J);
             qv(n[0]-1,J) = qv(0,J);
             qt(n[0]-1,J) = qt(0,J);
@@ -1226,86 +1227,84 @@ public:
             // ---------------------------------------------------
             // Solving u-velocity
             // ---------------------------------------------------
-            blitz::Range I(0,n[0]-1);
-            blitz::Range J(0,n[1]-1);
+            I = blitz::Range(0,n[0]-1);
+            J = blitz::Range(0,n[1]-1);
             sol(I,J) = u(0,I,J);
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qu);
 
-
-            blitz::Range I(1,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(1,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             us(0,I,J) = sol(I,J);
             us(0,n[0]-1,J) = sol(0,J);
 
             // ---------------------------------------------------
             // Solving v-velocity
             // ---------------------------------------------------
-            blitz::Range I(0,n[0]-1);
-            blitz::Range J(0,n[1]-1);
+            I = blitz::Range(0,n[0]-1);
+            J = blitz::Range(0,n[1]-1);
             sol(I,J) = u(1,I,J);
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qv);
 
-            blitz::Range I(1,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(1,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             us(1,I,J) = sol(I,J);
             us(1,n[0]-1,J) = sol(0,J);
 
             // ---------------------------------------------------
             // Solving Temperature
             // ---------------------------------------------------
-            blitz::Range I(0,n[0]-1);
-            blitz::Range J(0,n[1]-1);
+            I = blitz::Range(0,n[0]-1);
+            J = blitz::Range(0,n[1]-1);
             sol(I,J) = u(2,I,J);
-
 
             gauss(atp, ate, ats, atn, atw, atse, atsw, atne, atnw, atss, atssee,
                 atssww, atsse, atssw, atsee, atsww, atnn, atnnee, atnnww, atnne, atnw,
                 atnee, atnww, atee, atww, sol, qt);
 
-            blitz::Range I(1,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(1,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             us(2,I,J) = sol(I,J);
             us(2,n[0]-1,J) = sol(0,J);
 
             // ---------------------------------------------------
             // Solving up velocity
             // ---------------------------------------------------
-            blitz::Range I(0,n[0]-1);
+            I = blitz::Range(0,n[0]-1);
             sol(I,0) = up(0,I,0);
 
-            blitz::Range J(1,n[1]-1);
+            J = blitz::Range(1,n[1]-1);
             sol(I,J) = 0.0;
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qup);
 
-            blitz::Range I(1,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(1,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             up(0,I,J) = sol(I,J);
             up(0,n[0]-1,J) = sol(0,J);
 
             // ---------------------------------------------------
             // Solving vp velocity
             // ---------------------------------------------------
-            blitz::Range I(0,n[0]-1);
+            I = blitz::Range(0,n[0]-1);
             sol(I,0) = up(1,I,0);
 
-            blitz::Range J(1,n[1]-1);
+            J = blitz::Range(1,n[1]-1);
             sol(I,J) = 0.0;
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qvp);
 
-            blitz::Range I(1,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(1,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             up(1,I,J) = sol(I,J);
             up(1,n[0]-1,J) = sol(0,J);
 
@@ -1316,7 +1315,7 @@ public:
 
             j = n[1] - 1;
             jnn = j-1;
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
             
             vnn(I) = uinf * xnox(I) + vinf * xnoy(I);
 
@@ -1331,7 +1330,6 @@ public:
             // Copy first element to last
             up(0,n[0]-1,j) = up(0,0,j);
             up(1,n[0]-1,j) = up(1,0,j);
-
 
             // ----------------------------------------------------------
             // calculation of star velocities at i+-1/2 and j+-1/2
@@ -1364,7 +1362,7 @@ public:
 
 
             // ------j є [1,n[1]-2]-----------------------------------------------
-            blitz::Range J(1,n[1]-2);
+            J = blitz::Range(1,n[1]-2);
 
             // ------i = 0 -------------------------------------------------------
             i = 0;
@@ -1401,7 +1399,7 @@ public:
                         * dpdxi_jn(i,J) + (dey(i,J) + dey(i,J-1)) * dpde_jn(i,J));
 
             // ------i є [1,n[0]-2]-----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
 
             dpdxi_ip(I,J) = (p(I+1,J) - p(I,J)) / dxi(0);
             dpde_ip(I,J) = (p(I+1,J+1) + p(I,J+1) - p(I,J-1) - p(I+1,J-1)) / (4.0 * dxi(1));
@@ -1434,7 +1432,7 @@ public:
 
             // ---------------------------------------------------------------------------------
             
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
             dusdxi(I,J) = (us_ip(I,J) - us_in(I,J)) / dxi(0);
             dusde(I,J) = (us_jp(I,J) - us_jn(I,J)) / dxi(1);
             dvsdxi(I,J) = (vs_ip(I,J) - vs_in(I,J)) / dxi(0);
@@ -1445,8 +1443,8 @@ public:
             
 
             // INITIALIZING THE PCORR
-            blitz::Range I(0,n[0]-1);
-            blitz::Range J(0,n[1]-1);
+            I = blitz::Range(0,n[0]-1);
+            J = blitz::Range(0,n[1]-1);
             pcor(I, J) = 0;
             uold(0, I, J) = u(0, I, J);
             uold(1, I, J) = u(1, I, J);
@@ -1455,6 +1453,7 @@ public:
             // performing Gauss Seidel iterations
             // ----------------------------------------------------
             sip9p(ap, ae, as, an, aw, ase, asw, ane, anw, pcor, q);
+            std::cout << "Pramila" << std::endl;
 
             // apply boundary condition on Pcor
             if (norm != 1) {
@@ -1465,12 +1464,12 @@ public:
                 // Copying first element to last
                 pcor(n[0]-1, j) = pcor(i,j);
 
-                blitz::Range I(1,n[0]-2);
+                I = blitz::Range(1,n[0]-2);
                 pcor(I,j) = pcor(I,j+1);
 
                 // ----------------artificial boundary--------------
                 j = n[1] - 1;
-                blitz::Range I(0,n[0]-2);
+                I = blitz::Range(0,n[0]-2);
 
                 vnn(I) = uinf * xnox(I) + vinf * xnoy(I);
                 pcor(I, j) = 0;
@@ -1490,7 +1489,7 @@ public:
             blitz::Array<double,2> dpcor_de{n[0], n[1]};
 
             // ------j є [1,n[1]-2]---------------------------------------------
-            blitz::Range J(1,n[1]-2);
+            J = blitz::Range(1,n[1]-2);
 
             // ------i = 0 -----------------------------------------------------
             i = 0;
@@ -1501,14 +1500,14 @@ public:
             dpcor_de(i, J) = 0.5 * (pcor(i,J+1) - pcor(i,J-1)) / dxi(1);
             
             // ------i є [1,n[0]-2]----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
 
             dpcor_dxi(I, J) = 0.5 * (pcor(I+1,J) - pcor(I-1,J)) / dxi(0);
             dpcor_de(I, J) = 0.5 * (pcor(I,J+1) - pcor(I,J-1)) / dxi(1);
 
             //--------------------------------------------------------------------------
 
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             u(0,I,J) = us(0,I,J) - dt * (dxix(I,J) * dpcor_dxi(I,J) + dex(I,J) * dpcor_de(I,J));
             u(1,I,J) = us(1,I,J) - dt * (dxiy(I,J) * dpcor_dxi(I,J) + dey(I,J) * dpcor_de(I,J));
@@ -1517,8 +1516,8 @@ public:
             u(0,n[0]-1,J) = u(0,0,J);
             u(1,n[0]-1,J) = u(1,0,J);
 
-            blitz::Range I(0,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(0,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
 
             p(I, J) = p(I, J) + pcor(I, J);
             // Copying first element to last
@@ -1529,11 +1528,11 @@ public:
             // Evaluating Vr and Vth from U and V velocity just
             // before the outer plane in vr,vth index 0 is n[1]-2
             // ==========================================================
-            blitz::Array<double,2> costh{n[0]};
-            blitz::Array<double,2> sinth{n[0]};
+            blitz::Array<double,1> costh{n[0]};
+            blitz::Array<double,1> sinth{n[0]};
             j = n[1] - 2;
 
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             costh(I) = x(0, I, j) / sqrt(x(0, I, j) * x(0, I, j) + x(1, I, j) * x(1, I, j));
             sinth(I) = x(1, I, j) / sqrt(x(0, I, j) * x(0, I, j) + x(1, I, j) * x(1, I, j));
@@ -1554,7 +1553,7 @@ public:
             double de = 1.0 / (n[0] - 2);
 
             j = n[1] - 2;
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             f1(I) = (u(0,I,j) * dey(I,j) - u(1,I,j) * dex(I,j)) * fabs(ajac(I,j));
             f2(I) = (u(0,I+1,j) * dey(I+1,j) - u(1,I+1,j) * dex(I+1,j)) * fabs(ajac(I+1,j));
@@ -1564,14 +1563,14 @@ public:
             // =========================================================
             // Predicting values for vr and vth at outer
             // =========================================================
-            blitz::Array<double,2> cr{n[0]};
-            blitz::Array<double,2> vrinf{n[0]};
-            blitz::Array<double,2> vtinf{n[0]};
+            blitz::Array<double,1> cr{n[0]};
+            blitz::Array<double,1> vrinf{n[0]};
+            blitz::Array<double,1> vtinf{n[0]};
 
             double eps = 1e-2;
 
             j = n[1] - 1;
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             cr(I) = sqrt(x(0,I,j-1) * x(0,I,j-1) + x(1,I,j-1) * x(1,I,j-1)) / 
                     sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j));
@@ -1602,7 +1601,7 @@ public:
             // ---------------------------------------------------
             // -----------------cylinder_oscillation--------------
             j = 0;
-            blitz::Range I(0,n[0]-1);
+            I = blitz::Range(0,n[0]-1);
             
             u(0,I,j) = -speed_amp * cos(2.0 * Pi * F * time) * x(1,I,j);
             up(0,I,j) = u(0,I,j);
@@ -1612,7 +1611,7 @@ public:
 
 
             j = n[1] - 1;
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             vnn(I) = uinf * xnox(I) + vinf * xnoy(I);
 
@@ -1638,7 +1637,7 @@ public:
                                sinth(I) * vr(1,I) + costh(I) * vth(1,I));
             up(2,I,j) = where( vnn(I) >= 0, 
                                up(2,I,j), 
-                               uold(2,I,j) - (uet(I,j) * dt / dxi(1)) * (uold(2,I,j) - uold(2,I,j-1)));
+                               uold(2,I,j) - (uet(0,I,j) * dt / dxi(1)) * (uold(2,I,j) - uold(2,I,j-1)));
 
             // Copying first element to last
             u(0,n[0]-1,j) = u(0,0,j);
@@ -1660,20 +1659,25 @@ public:
             blitz::Array<double,3> bb{3, n[0],n[1]};
             blitz::Array<double,3> qqq{3, n[0],n[1]};
 
-            blitz::Range I(0,n[0]-1);
-            blitz::Range J(1,n[1]-1);
+            I = blitz::Range(0,n[0]-1);
+            J = blitz::Range(1,n[1]-1);
 
-            uxi(I, J) = dxix(I, J) * u(0, I, J) + dxiy(I, J) * u(1, I, J);
-            uet(I, J) = dex(I, J) * u(0, I, J) + dey(I, J) * u(1, I, J);
+            uxi(0, I, J) = dxix(I, J) * u(0, I, J) + dxiy(I, J) * u(1, I, J);
+            uet(0, I, J) = dex(I, J) * u(0, I, J) + dey(I, J) * u(1, I, J);
 
+            // copying slice to k =1,2
+            uxi(1, I, J) = uxi(0, I, J);
+            uxi(2, I, J) = uxi(0, I, J);
+            uet(1, I, J) = uet(0, I, J);
+            uet(2, I, J) = uet(0, I, J);
 
             // at solid boundary
             j = 0;
             jpp = j + 1;
             jpp2 = j + 2;
 
-            blitz::Range I(0,n[0]-2);
-            blitz::Range K(0,1);
+            I = blitz::Range(0,n[0]-2);
+            K = blitz::Range(0,1);
 
             conv(K,I,j) = 0;
             d2u(K,I,j) = 0;
@@ -1692,25 +1696,29 @@ public:
             qqq(K,i,j) = q1(i,j) * (-3 * u(K,i,j) + 4 * u(K,i,jpp) - u(K,i,jpp2)) / (2 * dxi(1));
 
             //convective
-            conv(K,i,j) = uxi(i,j) * 0.5 * (u(K,ipp,j) - u(K,inn,j)) / dxi(0);
-            conv(K,i,j) = conv(K,i,j) + uet(i,j) * (u(K,i,jpp) - u(K,i,j)) / dxi(1);
+            conv(K,i,j) = uxi(K,i,j) * 0.5 * (u(K,ipp,j) - u(K,inn,j)) / dxi(0);
+            conv(K,i,j) = conv(K,i,j) + uet(K,i,j) * (u(K,i,jpp) - u(K,i,j)) / dxi(1);
 
             // ------i є [1,n[0]-2]----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
+            blitz::Array<double, 3> tmp1_3d = broadcast_to_3d(alph, 3);
+            blitz::Array<double, 3> tmp2_3d = broadcast_to_3d(gamma, 3);
+            blitz::Array<double, 3> tmp3_3d = broadcast_to_3d(beta, 3);
+            blitz::Array<double, 3> tmp4_3d = broadcast_to_3d(q1, 3);
 
             // diffusive
-            aa(K,I,j) = alph(I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0));
-            gg(K,I,j) = gamma(I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1));
-            bb(K,I,j) = beta(I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / 
+            aa(K,I,j) = tmp1_3d(K,I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0));
+            gg(K,I,j) = tmp2_3d(K,I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1));
+            bb(K,I,j) = tmp3_3d(K,I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / 
                         (2 * dxi(0) * dxi(1));
-            qqq(K,I,j) = q1(I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1));
+            qqq(K,I,j) = tmp4_3d(K,I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1));
 
             //convective
-            conv(K,I,j) = uxi(I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0);
-            conv(K,I,j) = conv(K,I,j) + uet(I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1);
+            conv(K,I,j) = uxi(K,I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0);
+            conv(K,I,j) = conv(K,I,j) + uet(K,I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1);
 
             // -----common range for--i є [1,n[0]-2]------------------------------
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             d2u(K,I,j) = aa(K,I,j) + gg(K,I,j) - 2 * bb(K,I,j) + qqq(K,I,j);
             
@@ -1732,17 +1740,18 @@ public:
             j = n[1] - 1;
             jnn = j - 1;
             jnn2 = j - 2;
-            blitz::Range I(0,n[0]-2);
-            blitz::Range K(0,1);
+            I = blitz::Range(0,n[0]-2);
+            K = blitz::Range(0,1);
+            blitz::Array<double, 2> tmp1_2d = broadcast_1d_to_2d(vnn, 2);
 
             vnn(I) = uinf * xnox(I) + vinf * xnoy(I);
-            conv(K, I, j) = where( vnn(I)>=0,
+            conv(K, I, j) = where( tmp1_2d(K,I)>=0,
                                    0,
                                    conv(K, I, j));
-            d2u(K, I, j) = where( vnn(I)>=0,
+            d2u(K, I, j) = where( tmp1_2d(K,I)>=0,
                                    0,
                                    d2u(K, I, j));
-            alc(K, I, j) = where( vnn(I)>=0,
+            alc(K, I, j) = where( tmp1_2d(K,I)>=0,
                                    0,
                                    alc(K, I, j));
             // -------------momentum equation----------------------------------
@@ -1751,54 +1760,64 @@ public:
             inn = n[0] - 2;
             ipp = i + 1;
 
+            tmp1_3d = broadcast_to_3d(alph, 2);
+            tmp2_3d = broadcast_to_3d(gamma, 2);
+            tmp3_3d = broadcast_to_3d(beta, 2);
+            tmp4_3d = broadcast_to_3d(q1, 2);
+
             if(vnn(i)>=0){
 
                 // diffusive
-                aa(K,I,j) = alph(I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0));
-                gg(K,I,j) = gamma(I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1));
-                bb(K,I,j) = beta(I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / (2 * dxi(0) * dxi(1));
-                qqq(K,I,j) = q1(I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1));
+                aa(K,I,j) = tmp1_3d(K,I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0));
+                gg(K,I,j) = tmp2_3d(K,I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1));
+                bb(K,I,j) = tmp3_3d(K,I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / (2 * dxi(0) * dxi(1));
+                qqq(K,I,j) = tmp4_3d(K,I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1));
 
                 d2u(K, i, j) = aa(K, i, j) + gg(K, i, j) - 2 * bb(K, i, j) + qqq(K, i, j);
 
                 //convective
-                conv(K,I,j) = uxi(I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0);
-                conv(K,I,j) = conv(K,I,j) + uet(I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1);
+                conv(K,I,j) = uxi(K,I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0);
+                conv(K,I,j) = conv(K,I,j) + uet(K,I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1);
 
             }
 
             // ------i є [1,n[0]-2]----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
+            tmp1_2d = broadcast_1d_to_2d(vnn, 2);
+            tmp1_3d = broadcast_to_3d(alph, 2);
+            tmp2_3d = broadcast_to_3d(gamma, 2);
+            tmp3_3d = broadcast_to_3d(beta, 2);
+            tmp4_3d = broadcast_to_3d(q1, 2);
             
             // diffusive
-            aa(K,I,j) = where( vnn(I) >= 0,
-                               alph(I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0)),
+            aa(K,I,j) = where( tmp1_2d(K,I) >= 0,
+                               tmp1_3d(K,I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0)),
                                aa(K, I, j));
-            gg(K,I,j) = where( vnn(I) >= 0,
-                               gamma(I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1)),
+            gg(K,I,j) = where( tmp1_2d(K,I) >= 0,
+                               tmp2_3d(K,I,j) * (u(K,I,jpp) + u(K,I,j) - 2 * u(K,I,jpp)) / (dxi(1) * dxi(1)),
                                gg(K, I, j));
-            bb(K,I,j) = where( vnn(I) >= 0,
-                               beta(I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / (2 * dxi(0) * dxi(1)),
+            bb(K,I,j) = where( tmp1_2d(K,I) >= 0,
+                               tmp3_3d(K,I,j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / (2 * dxi(0) * dxi(1)),
                                 bb(K, I, j));
-            qqq(K,I,j) = where( vnn(I) >= 0,
-                                q1(I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1)),
+            qqq(K,I,j) = where( tmp1_2d(K,I) >= 0,
+                                tmp4_3d(K,I,j) * (-3 * u(K,I,j) + 4 * u(K,I,jpp) - u(K,I,jpp2)) / (2 * dxi(1)),
                                 qqq(K,I,j));
 
             d2u(K, I, j) = aa(K, I, j) + gg(K, I, j) - 2 * bb(K, I, j) + qqq(K, I, j);
 
             //convective
-            conv(K,I,j) = where( vnn(I)>=0,
-                                 uxi(I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0),
+            conv(K,I,j) = where( tmp1_2d(K,I)>=0,
+                                 uxi(K,I,j) * 0.5 * (u(K,I+1,j) - u(K,I-1,j)) / dxi(0),
                                 conv(K, I, j));
-            conv(K,I,j) = where( vnn(I)>=0,
-                                 conv(K,I,j) + uet(I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1),
+            conv(K,I,j) = where( tmp1_2d(K,I)>=0,
+                                 conv(K,I,j) + uet(K,I,j) * (u(K,I,jpp) - u(K,I,j)) / dxi(1),
                                 conv(K, I, j));
             
             // -----common range for--i є [1,n[0]-2]------------------------------
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             // local
-            alc(K,I,j) = where( vnn(I)>=0,
+            alc(K,I,j) = where( tmp1_2d(K,I)>=0,
                                 (u(K, I, j) - uold(K, I, j)) / dt,
                                 alc(K,I,j));
 
@@ -1812,7 +1831,7 @@ public:
             p(I, j) = where( vnn(I)>=0,
                              p(I, j-1) + (dp_dx(I,j) * (-dxiy(I,j) * ajac(I,j)) + dp_dy(I,j) * (dxix(I,j) * ajac(I,j))) * dxi(1),
                             // -------------gresho's condition---------------------------------
-                            0.5 * (1.0 / Re) * ((3 * uet(I,j) - 4 * uet(I, jnn) + uet(i, jnn2)) / dxi[1]));
+                            0.5 * (1.0 / Re) * ((3 * uet(0,I,j) - 4 * uet(0, I, jnn) + uet(0, I, jnn2)) / dxi(1)));
             
             // Copying first to last
             p(n[0]-1, j) = p(0, j);
@@ -1825,10 +1844,10 @@ public:
             blitz::Array<double,2> cb{n[0],n[1]};
 
             j = 0;
-            blitz::Range I(0,n[0]-1);
+            I = blitz::Range(0,n[0]-1);
             si(I,j) = 0;
 
-            blitz::Range J(1,n[1]-1);
+            J = blitz::Range(1,n[1]-1);
             
 
             ca(I,J) = (dxix(I,J) * u(0,I,J) * fabs(ajac(I,J)) + dxix(I,J-1) * u(0,I,J-1) * fabs(ajac(I,J-1)));
@@ -1846,8 +1865,8 @@ public:
             blitz::Array<double,2> du_det{n[0],n[1]};
             blitz::Array<double,2> du_dy{n[0],n[1]};
 
-            blitz::Range I(0,n[0]-2);
-            blitz::Range J(1,n[1]-2);
+            I = blitz::Range(0,n[0]-2);
+            J = blitz::Range(1,n[1]-2);
             dmax = 0.0;
 
             // ------i = 0 -----------------------------------------------------
@@ -1857,7 +1876,7 @@ public:
 
             dil(i,J) = dxix(i,J) * (u(0,ipp,J) - u(0,inn,J)) / (2 * dxi(0)) + 
                                 dex(i,J) * (u(0,i,J+1) - u(0,i,J-1)) / (2 * dxi(1)) + 
-                                dey(i,J) * (u(1,i,J+1) - u(1,i,J-1)) / (2 * dxi[1]) + 
+                                dey(i,J) * (u(1,i,J+1) - u(1,i,J-1)) / (2 * dxi(1)) + 
                                 dxiy(i,J) * (u(1,ipp,J) - u(1,inn,J)) / (2 * dxi(0));
 
             dv_dxi(i,J) = 0.5 / dxi(0) * (u(1,ipp,J) - u(1,inn,J));
@@ -1868,15 +1887,15 @@ public:
             du_dxi(i,J) = 0.5 / dxi(0) * (u(0,ipp,J) - u(0,inn,J));
             du_det(i,J) = 0.5 / dxi(1) * (u(0,i,J+1) - u(0,i,J-1));    
 
-            dil(n[0] - 1,J) = dil(I,J);
-            vort(n[0] - 1,J) = vort(I,J);
+            dil(n[0] - 1,J) = dil(0,J);
+            vort(n[0] - 1,J) = vort(0,J);
             
             // ------i є [1,n[0]-2]----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
 
             dil(I,J) = dxix(I,J) * (u(0,I+1,J) - u(0,I-1,J)) / (2 * dxi(0)) + 
                                 dex(I,J) * (u(0,I,J+1) - u(0,I,J-1)) / (2 * dxi(1)) + 
-                                dey(I,J) * (u(1,I,J+1) - u(1,I,J-1)) / (2 * dxi[1]) + 
+                                dey(I,J) * (u(1,I,J+1) - u(1,I,J-1)) / (2 * dxi(1)) + 
                                 dxiy(I,J) * (u(1,I+1,J) - u(1,I-1,J)) / (2 * dxi(0));
 
             dv_dxi(I,J) = 0.5 / dxi(0) * (u(1,I+1,J) - u(1,I-1,J));
@@ -1898,7 +1917,7 @@ public:
             dmax = max(dil(I,J));
 
             //-----------------------------------------------------------------
-            blitz::Range I(0,n[0]-2);
+            I = blitz::Range(0,n[0]-2);
 
             // j = 0 boundary
             j = 0;
@@ -1924,7 +1943,7 @@ public:
             vort(n[0]-1,j) = vort(i,j);
 
             // ------i є [1,n[0]-2]----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
 
             dv_dxi(I,j) = 0.5 / dxi(0) * (u(1,I+1,j) - u(1,I-1,j));
             dv_det(I,j) = 1.0 / dxi(1) * (u(1,I,jpp) - u(1,I,j));
@@ -1962,7 +1981,7 @@ public:
             vort(n[0]-1,j) = vort(i,j);
 
             // ------i є [1,n[0]-2]----------------------------------------------
-            blitz::Range I(1,n[0]-2);
+            I = blitz::Range(1,n[0]-2);
 
             dv_dxi(I,j) = 0.5 / dxi(0) * (u(1,I+1,j) - u(1,I-1,j));
             dv_det(I,j) = 1.0 / dxi(1) * (u(1,I,j) - u(1,I,jnn));
@@ -1989,7 +2008,7 @@ public:
 
             j = 0;
 
-            blitz::Range I(0, n[0]-2);
+            I = blitz::Range(0, n[0]-2);
             
             blitz::Array<double,1> PJ1(n[0]);
             blitz::Array<double,1> PJ2(n[0]);
@@ -2054,7 +2073,7 @@ public:
             blitz::Array<double,1> fh2(n[0]);
 
             j = 0;
-            blitz::Range I(0, n[0]-2);
+            I = blitz::Range(0, n[0]-2);
 
             PJ1(I) = p(I,j) * ajac(I,j);
             PJ2(I) = p(I+1,j) * ajac(I+1,j);
@@ -2093,8 +2112,8 @@ public:
                 file1 << "J=" << n[1] << std::endl;
                 
                 // Still need loops for formatted output, but can use Range objects
-                blitz::Range I(0, n[0]-1);
-                blitz::Range J(0, n[1]-1);
+                I = blitz::Range(0, n[0]-1);
+                J = blitz::Range(0, n[1]-1);
                 
                 for(int j = 0; j < n[1]; j++) {
                     for(int i = 0; i < n[0]; i++) {
@@ -2216,19 +2235,19 @@ public:
         int np2 = phi.extent(1);
         
         // Local arrays for SIP solver - automatic memory management
-        blitz::Array<double, 2> be(np1, np2);
-        blitz::Array<double, 2> bw(np1, np2);
-        blitz::Array<double, 2> bs(np1, np2);
-        blitz::Array<double, 2> bn(np1, np2);
-        blitz::Array<double, 2> bse(np1, np2);
-        blitz::Array<double, 2> bne(np1, np2);
-        blitz::Array<double, 2> bnw(np1, np2);
-        blitz::Array<double, 2> bsw(np1, np2);
-        blitz::Array<double, 2> bp(np1, np2);
-        blitz::Array<double, 2> res(np1, np2);
-        blitz::Array<double, 2> qp(np1, np2);
-        blitz::Array<double, 2> del(np1, np2);
-        blitz::Array<double, 2> phio(np1, np2);
+        blitz::Array<double, 2> be{np1, np2};
+        blitz::Array<double, 2> bw{np1, np2};
+        blitz::Array<double, 2> bs{np1, np2};
+        blitz::Array<double, 2> bn{np1, np2};
+        blitz::Array<double, 2> bse{np1, np2};
+        blitz::Array<double, 2> bne{np1, np2};
+        blitz::Array<double, 2> bnw{np1, np2};
+        blitz::Array<double, 2> bsw{np1, np2};
+        blitz::Array<double, 2> bp{np1, np2};
+        blitz::Array<double, 2> res{np1, np2};
+        blitz::Array<double, 2> qp{np1, np2};
+        blitz::Array<double, 2> del{np1, np2};
+        blitz::Array<double, 2> phio{np1, np2};
         
         double tol = 0.75e-2;
         int maxiter = 100000;
@@ -2247,49 +2266,59 @@ public:
         bp = 0.0;
         
         // Forward elimination - compute L and U matrices
-        for (int i = 0; i < n[0]-1; i++) {
-            for (int j = 1; j < n[1]-1; j++) {
-                int inn = (i == 0) ? n[0]-2 : i-1;
-                int ipp = i+1;
-                
-                int jpp = j+1;
-                int jnn = j-1;
-                
-                bsw(i, j) = asw(i, j);
-                
-                bw(i, j) = (aw(i, j) + alp*anw(i, j) - bsw(i, j)*bn(inn, jnn)) / 
-                        (1.0 + alp*bn(inn, j));
-                
-                bs(i, j) = (as(i, j) + alp*ase(i, j) - bsw(i, j)*be(inn, jnn)) / 
-                        (1.0 + alp*be(i, jnn));
-                
-                double ad = anw(i, j) + ase(i, j) - bs(i, j)*be(i, jnn) - bw(i, j)*bn(inn, j);
-                
-                bp(i, j) = ap(i, j) - alp*ad - bs(i, j)*bn(i, jnn) - bw(i, j)*be(inn, j) - 
-                        bsw(i, j)*bne(inn, jnn);
-                
-                bn(i, j) = (an(i, j) + alp*anw(i, j) - alp*bw(i, j)*bn(inn, j) - 
-                        bw(i, j)*bne(inn, j)) / bp(i, j);
-                
-                be(i, j) = (ae(i, j) + alp*ase(i, j) - alp*bs(i, j)*be(i, jnn) - 
-                        bs(i, j)*bne(i, jnn)) / bp(i, j);
-                
-                bne(i, j) = ane(i, j) / bp(i, j);
-                
-                // Handle periodic boundary condition
-                if (i == 0) {
-                    bsw(n[0]-1, j) = bsw(i, j);
-                    bn(n[0]-1, j) = bn(i, j);
-                    bs(n[0]-1, j) = bs(i, j);
-                    bse(n[0]-1, j) = bse(i, j);
-                    bnw(n[0]-1, j) = bnw(i, j);
-                    bne(n[0]-1, j) = bne(i, j);
-                    be(n[0]-1, j) = be(i, j);
-                    bw(n[0]-1, j) = bw(i, j);
-                    bp(n[0]-1, j) = bp(i, j);
-                }
-            }
-        }
+        blitz::Range J(1,n[1]-2);
+
+        // ------i = 0 -----------------------------------------------------
+        i = 0;
+        ipp = i + 1;
+        inn = n[0] - 2;
+
+        bsw(i,J) = asw(i,J);
+        bw(i,J) = (aw(i,J) + alp*anw(i,J) - bsw(i,J)*bn(inn,J-1)) / 
+                           (1.0 + alp*bn(inn,J));
+    
+        bs(i,J) = (as(i,J)+alp*ane(i,J) - bsw(i,J)*be(inn,J-1)) / 
+                           (1.0 + alp*be(i,J-1));
+
+        bp(i,J) = ap(i,J) + alp*(anw(i,J)+ase(i,J) - bs(i,J)*be(i,J-1) - bw(i,J)*bn(inn,J))
+                    - bs(i,J)*bn(i,J-1) - bw(i,J)*be(inn,J) - bsw(i,J)*bne(inn,J-1);
+
+        bn(i,J) = (an(i,J) + alp*anw(i,J) - alp*bw(i,J)*bn(ipp,J) - bw(i,J)*bne(inn,J)) / bp(i,J);
+        
+        be(i,J) = (ae(i,J) + alp*ase(i,J) - alp*bs(i,J)*be(i,J-1) - bs(i,J)*bne(i,J-1)) / bp(i,J);
+        
+        bne(i,J) = ane(i,J) / bp(i,J);
+
+        //Handle periodic boundary condition
+        bsw(n[0]-1,J) = bsw(i,J);
+        bn(n[0]-1,J) = bn(i,J);
+        bs(n[0]-1,J) = bs(i,J);
+        bse(n[0]-1,J) = bse(i,J);
+        bnw(n[0]-1,J) = bnw(i,J);
+        bne(n[0]-1,J) = bne(i,J);
+        be(n[0]-1,J) = be(i,J);
+        bw(n[0]-1,J) = bw(i,J);
+        bp(n[0]-1,J) = bp(i,J);
+
+        // ------i є [1,n[0]-2]----------------------------------------------
+        blitz::Range I(1,n[0]-2);
+        bsw(I,J) = asw(I,J);
+        bw(I,J) = (aw(I,J) + alp*anw(I,J) - bsw(I,J)*bn(I-1,J-1)) / 
+                           (1.0 + alp*bn(I-1,J));
+
+        bs(I,J) = (as(I,J)+alp*ane(I,J) - bsw(I,J)*be(I-1,J-1)) / 
+                           (1.0 + alp*be(I-1,J));
+
+        bp(I,J) = ap(I,J) + alp*(anw(I,J)+ase(I,J) - bs(I,J)*be(I,J-1) - bw(I,J)*bn(I-1,J))
+                    - bs(I,J)*bn(I,J-1) - bw(I,J)*be(I-1,J) - bsw(I,J)*bne(I-1,J-1);
+
+        bn(I,J) = (an(I,J) + alp*anw(I,J) - alp*bw(I,J)*bn(I+1,J) - bw(I,J)*bne(I-1,J)) / bp(I,J);
+
+        be(I,J) = (ae(I,J) + alp*ase(I,J) - alp*bs(I,J)*be(I,J-1) - bs(I,J)*bne(I,J-1)) / bp(I,J);
+
+        bne(I,J) = ane(I,J) / bp(I,J);
+
+        //--------------------------------------------------------------------------
         
         // Initialize qp and del arrays - VECTORIZED
         qp = 0.0;
@@ -2305,36 +2334,44 @@ public:
             res = 0.0;
             
             // Forward sweep - compute residual and qp
-            for (int i = 0; i < n[0]-1; i++) {
-                for (int j = 1; j < n[1]-1; j++) {
-                    int inn = (i == 0) ? n[0]-2 : i-1;
-                    int ipp = i+1;
-                    
-                    int jpp = j+1;
-                    int jnn = j-1;
-                    
-                    // Compute residual
-                    res(i, j) = q(i, j) - ap(i, j)*phi(i, j) - ae(i, j)*phi(ipp, j) - 
-                                an(i, j)*phi(i, jpp) - as(i, j)*phi(i, jnn) - 
-                                aw(i, j)*phi(inn, j) - anw(i, j)*phi(inn, jpp) - 
-                                ane(i, j)*phi(ipp, jpp) - asw(i, j)*phi(inn, jnn) - 
-                                ase(i, j)*phi(ipp, jnn);
-                    
-                    // Forward substitution
-                    qp(i, j) = (res(i, j) - bs(i, j)*qp(i, jnn) - bw(i, j)*qp(inn, j) - 
-                            bsw(i, j)*qp(inn, jnn)) / bp(i, j);
-                    
-                    // Handle periodic boundary condition
-                    if (i == 0) {
-                        res(n[0]-1, j) = res(i, j);
-                        qp(n[0]-1, j) = qp(i, j);
-                    }
-                }
-            }
+
+            J = blitz::Range(1,n[1]-2);
+
+            // ------i = 0 -----------------------------------------------------
+            i = 0;
+            ipp = i + 1;
+            inn = n[0] - 2;
+
+            // Compute residual
+            res(i, J) = q(i, J) - ap(i, J)*phi(i, J) - ae(i, J)*phi(ipp, J) - 
+                        an(i, J)*phi(i, J+1) - as(i, J)*phi(i, J-1) - 
+                        aw(i, J)*phi(inn, J) - anw(i, J)*phi(inn, J+1) - 
+                        ane(i, J)*phi(ipp, J+1) - asw(i, J)*phi(inn, J-1) - 
+                        ase(i, J)*phi(ipp, J-1);
+            // Forward substitution
+            qp(i, J) = (res(i, J) - bs(i, J)*qp(i, J-1) - bw(i, J)*qp(inn, J) - 
+                    bsw(i, J)*qp(inn, J-1)) / bp(i, J);
+
+            // Handle periodic boundary condition
+            res(n[0]-1, J) = res(i, J);
+            qp(n[0]-1, J) = qp(i, J);
+
+            // ------i є [1,n[0]-2]----------------------------------------------
+            I = blitz::Range(1,n[0]-2);
+
+            // Compute residual
+            res(I, J) = q(I, J) - ap(I, J)*phi(I, J) - ae(I, J)*phi(I+1, J) - 
+                        an(I, J)*phi(I, J+1) - as(I, J)*phi(I, J-1) - 
+                        aw(I, J)*phi(I-1, J) - anw(I, J)*phi(I-1, J+1) - 
+                        ane(I, J)*phi(I+1, J+1) - asw(I, J)*phi(I-1, J-1) - 
+                        ase(I, J)*phi(I+1, J-1);
+            // Forward substitution
+            qp(I, J) = (res(I, J) - bs(I, J)*qp(I, J-1) - bw(I, J)*qp(I-1, J) - 
+                    bsw(I, J)*qp(I-1, J-1)) / bp(I, J);
             
             // Compute sum of absolute residuals - VECTORIZED
-            blitz::Range I(0, n[0]-2);
-            blitz::Range J(1, n[1]-2);
+            I = blitz::Range(0, n[0]-2);
+            J = blitz::Range(1, n[1]-2);
             double ssum = blitz::sum(blitz::fabs(res(I, J)));
             
             // Normalize residual for convergence check
@@ -2347,28 +2384,34 @@ public:
             }
             
             double sumav = ssum / sumnor;
+            std::cout << "ssum/sumnor " << ssum << " " << sumnor << std::endl;
+
             
             // Backward sweep - update phi values
-            for (int i = n[0]-2; i >= 0; i--) {
-                for (int j = n[1]-2; j >= 1; j--) {
-                    int inn = (i == 0) ? n[0]-2 : i-1;
-                    int ipp = i+1;
-                    
-                    int jpp = j+1;
-                    int jnn = j-1;
-                    
-                    // Backward substitution
-                    del(i, j) = qp(i, j) - bn(i, j)*del(i, jpp) - be(i, j)*del(ipp, j) - 
-                                bne(i, j)*del(ipp, jpp);
-                    
-                    phi(i, j) = phi(i, j) + del(i, j);
-                    
-                    // Handle periodic boundary condition
-                    if (i == 0) {
-                        phi(n[0]-1, j) = phi(i, j);
-                    }
-                }
-            }
+            J = blitz::Range(1,n[1]-2);
+
+            // ------i = 0 -----------------------------------------------------
+            i = 0;
+            ipp = i + 1;
+            inn = n[0] - 2;
+
+            // Backward substitution
+            del(i, J) = qp(i, J) - bn(i, J)*del(i, J+1) - be(i, J)*del(ipp, J) - 
+                        bne(i, J)*del(ipp, J+1);
+
+            phi(i, J) = phi(i, J) + del(i, J);
+
+            // Handle periodic boundary condition
+            phi(n[0]-1, J) = phi(i, J);
+
+            // ------i є [1,n[0]-2]----------------------------------------------
+            I = blitz::Range(1,n[0]-2);
+            
+            // Backward substitution
+            del(I, J) = qp(I, J) - bn(I, J)*del(I, J+1) - be(I, J)*del(I+1, J) - 
+                        bne(I, J)*del(I+1, J+1);
+
+            phi(I, J) = phi(I, J) + del(I, J);
             
             // Check convergence
             if (sumav < tol) {
@@ -2390,8 +2433,8 @@ public:
         int np1 = phi.extent(0);
         int np2 = phi.extent(1);
         
-        blitz::Array<double, 2> res(np1, np2);
-        blitz::Array<double, 2> phio(np1, np2);
+        blitz::Array<double, 2> res{np1, np2};
+        blitz::Array<double, 2> phio{np1, np2};
         
         double tol = 0.75e-2;
         int maxiter = 100000;
@@ -2514,6 +2557,30 @@ public:
                 break;
             }
         }
+    }
+    // Add this helper function to your Solver class
+    blitz::Array<double, 3> broadcast_to_3d(const blitz::Array<double, 2>& arr2d, int k_size) {
+        int ni = arr2d.extent(0);
+        int nj = arr2d.extent(1);
+        
+        blitz::Array<double, 3> arr3d(k_size, ni, nj);
+        
+        for(int k = 0; k < k_size; k++) {
+            arr3d(k, blitz::Range::all(), blitz::Range::all()) = arr2d;
+        }
+        
+        return arr3d;
+    }
+    template<typename T>
+    blitz::Array<T, 2> broadcast_1d_to_2d(const blitz::Array<T, 1>& arr1d, int k_size) {
+        int n_elements = arr1d.extent(0);
+        blitz::Array<T, 2> arr2d(k_size, n_elements);
+        
+        for(int k = 0; k < k_size; k++) {
+            arr2d(k, blitz::Range::all()) = arr1d;
+        }
+        
+        return arr2d;
     }
 };
 
