@@ -1,3 +1,4 @@
+// changed gauss + contigous allocation speed == to fortran code
 #include <iostream>
 #include <fstream>
 #include <cmath>
