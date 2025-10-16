@@ -1476,7 +1476,6 @@ public:
             // cout << "Performing Gauss-Seidel iterations..." << endl;
             // call goss9p(pcor, q);
             sip9p(ap, ae, as, an, aw, ase, asw, ane, anw, pcor, q);
-            ;
 
             // ------apply boundary condition on Pcor
             // cout << "Applying boundary condition on pcor..." << endl;
