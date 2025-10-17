@@ -2,9 +2,11 @@
 .vscode/
 .idea/
 *.o
+*.exe
 *.out
 *.dat
 *.dSYM
 sol
 for
 PSolver
+test_*/*

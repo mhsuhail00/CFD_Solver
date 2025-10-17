@@ -1453,7 +1453,6 @@ public:
             // performing Gauss Seidel iterations
             // ----------------------------------------------------
             sip9p(ap, ae, as, an, aw, ase, asw, ane, anw, pcor, q);
-            std::cout << "Pramila" << std::endl;
 
             // apply boundary condition on Pcor
             if (norm != 1) {
