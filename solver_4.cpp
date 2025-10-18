@@ -141,8 +141,8 @@ public:
     blitz::Array<double, 3> us{3, np1, np2};
 
     // 2D boundary velocity arrays
-    blitz::Array<double, 2> vr{np1, np2};
-    blitz::Array<double, 2> vth{np1, np2};
+    blitz::Array<double, 2> vr{2, np1};
+    blitz::Array<double, 2> vth{2, np1};
 
     // 1D arrays
     blitz::Array<double, 1> xnox{np1};
@@ -1035,7 +1035,7 @@ public:
                     jnn = j - 1;
 
                     up(0,i,j) = (5.0 * up(0,i,jnn) - 4.0 * up(0,i,jnn-1) + up(0,i,jnn-2)) / 2.0;
-                    up(1,i,j) = (5.0 * up(1,i,jnn) - 4.0 * up(1,i,jnn-1) + up(2,i,jnn-2)) / 2.0;
+                    up(1,i,j) = (5.0 * up(1,i,jnn) - 4.0 * up(1,i,jnn-1) + up(1,i,jnn-2)) / 2.0;
                 }
 
                 if (i == 0) {
