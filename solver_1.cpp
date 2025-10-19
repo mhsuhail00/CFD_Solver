@@ -9,7 +9,6 @@
 #include <iomanip>
 #include <chrono>
 using namespace std;
-
 int n[2];
 string INPUT_FILE = "INP.DAT";
 
@@ -502,7 +501,22 @@ public:
         delete[] vdotn;
         delete[] thi;
     }
+    
+    void export_array_2d(const std::string& filename, double **arr, 
+                     int n0, int n1, const std::string& varname) {
+        std::ofstream file(filename, std::ios::app);
+        file << " VAR=" << varname << "\n";
+        file << std::scientific << std::setprecision(16);
 
+        for(int j = 0; j < n1; j++) {
+            for(int i = 0; i < n0; i++) {
+                file << i << " " << j << " " << arr[i][j] << "\n";
+            }
+        }
+        file << "\n";
+        file.close();
+    }
+    
     Solver() {
         auto start = chrono::high_resolution_clock::now();
 
@@ -1065,7 +1079,6 @@ public:
         // cout << "Starting time loop..." << endl;
         
         auto start = chrono::high_resolution_clock::now();
-        
         // Outer loop
         for(loop=0;loop<MAXSTEP;loop++){
             time = time + dt;
@@ -1079,7 +1092,7 @@ public:
                     uold[2][i][j] = u[2][i][j];
                 }
             }
-
+            
             double dp_dxi, dp_de, dp_dx, dp_dy;
             // Convection term
             // k loop starts
@@ -1184,7 +1197,6 @@ public:
                             //NEAR BOUNDARY ALWAYS CENTRAL
                             du_et = 0.5*(u[k][i][jpp]-u[k][i][jnn])/dxi[1];
                         }
-
                         conv[k] = uxi[i][j]*du_xi + uet[i][j]*du_et;
                     }
                     // ---------------------------------------------------
@@ -1247,7 +1259,7 @@ public:
                     }
                 }
             } //end of space scan
-
+            
             //solving u-vel
             // cout << "Solving u-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {

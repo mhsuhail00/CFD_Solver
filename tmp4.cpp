@@ -125,8 +125,8 @@ public:
     blitz::Array<double, 2> sol{np1, np2};
     blitz::Array<double, 2> pcor{np1, np2};
     blitz::Array<double, 2> p{np1, np2};
-    blitz::Array<double, 2> uxi{3, np1, np2};
-    blitz::Array<double, 2> uet{3, np1, np2};
+    blitz::Array<double, 3> uxi{3, np1, np2};
+    blitz::Array<double, 3> uet{3, np1, np2};
     blitz::Array<double, 2> vort{np1, np2};
 
     // 3D arrays - converted to triple pointers
@@ -154,6 +154,9 @@ public:
     blitz::Array<double, 1> thi{np1};
 
     blitz::Array<double, 1> dxi{2};
+    blitz::TinyVector<double, 3> d2u;
+    blitz::TinyVector<double, 3> conv;
+    blitz::TinyVector<double, 3> alc;
 
 
     // Scalar variables (REAL*8 declarations)

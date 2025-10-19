@@ -2074,7 +2074,7 @@ public:
 
             auto end = chrono::high_resolution_clock::now();
             auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-            start = chrono::high_resolution_clock::now();
+            // start = chrono::high_resolution_clock::now();
             cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms" << endl;
 
         }

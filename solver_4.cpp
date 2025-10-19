@@ -8,7 +8,6 @@
 #include <iomanip>
 #include <chrono>
 #include <blitz/array.h>
-
 int n[2];
 std::string INPUT_FILE = "INP.DAT";
 
@@ -160,6 +159,21 @@ public:
     blitz::Array<double, 1> d2u{3};
     blitz::Array<double, 1> conv{3};
     blitz::Array<double, 1> alc{3};
+
+    // SIP solver temporary arrays - reused across calls
+    blitz::Array<double, 2> sip_be{np1, np2};
+    blitz::Array<double, 2> sip_bw{np1, np2};
+    blitz::Array<double, 2> sip_bs{np1, np2};
+    blitz::Array<double, 2> sip_bn{np1, np2};
+    blitz::Array<double, 2> sip_bse{np1, np2};
+    blitz::Array<double, 2> sip_bne{np1, np2};
+    blitz::Array<double, 2> sip_bnw{np1, np2};
+    blitz::Array<double, 2> sip_bsw{np1, np2};
+    blitz::Array<double, 2> sip_bp{np1, np2};
+    blitz::Array<double, 2> sip_res{np1, np2};
+    blitz::Array<double, 2> sip_qp{np1, np2};
+    blitz::Array<double, 2> sip_del{np1, np2};
+    blitz::Array<double, 2> sip_phio{np1, np2};
 
     // Scalar variables (REAL*8 declarations)
     double Nuss, p_grid, a_grid, ar, aaa, bbb, sgn, f_ar;
@@ -1218,8 +1232,8 @@ public:
                 vth(0,i) = -u(0,i,j) * sinth + u(1,i,j) * costh;
 
                 if (i == 0) {
-                    vr(n[0]-1) = vr(0,i);
-                    vth(n[0]-1) = vth(0,i);
+                    vr(0,n[0]-1) = vr(0,i);
+                    vth(0,n[0]-1) = vth(0,i);
                 }
             }
 
@@ -1750,27 +1764,25 @@ public:
             blitz::Array<double, 2>& anw, blitz::Array<double, 2>& phi, 
             blitz::Array<double, 2>& q){
         
-        int np1 = phi.extent(0);
-        int np2 = phi.extent(1);
-        
-        // Local arrays for SIP solver - automatic memory management
-        blitz::Array<double, 2> be{np1, np2};
-        blitz::Array<double, 2> bw{np1, np2};
-        blitz::Array<double, 2> bs{np1, np2};
-        blitz::Array<double, 2> bn{np1, np2};
-        blitz::Array<double, 2> bse{np1, np2};
-        blitz::Array<double, 2> bne{np1, np2};
-        blitz::Array<double, 2> bnw{np1, np2};
-        blitz::Array<double, 2> bsw{np1, np2};
-        blitz::Array<double, 2> bp{np1, np2};
-        blitz::Array<double, 2> res{np1, np2};
-        blitz::Array<double, 2> qp{np1, np2};
-        blitz::Array<double, 2> del{np1, np2};
-        blitz::Array<double, 2> phio{np1, np2};
+        //Using class member arrays instead of allocating new ones each call
+        auto& be = sip_be;
+        auto& bw = sip_bw;
+        auto& bs = sip_bs;
+        auto& bn = sip_bn;
+        auto& bse = sip_bse;
+        auto& bne = sip_bne;
+        auto& bnw = sip_bnw;
+        auto& bsw = sip_bsw;
+        auto& bp = sip_bp;
+        auto& res = sip_res;
+        auto& qp = sip_qp;
+        auto& del = sip_del;
+        auto& phio = sip_phio;
         
         double tol = 0.75e-2;
         int maxiter = 100000;
         double alp = 0.92;
+        double sumnor = 1.0;  //Initialize to avoid uninitialized variable
         
         // Initialize arrays
         for (int i = 0; i < n[0]; i++) {
@@ -1786,19 +1798,15 @@ public:
                 bp(i,j) = 0.0;
             }
         }
+        
         // Forward elimination - compute L and U matrices
         for (int i = 0; i < n[0]-1; i++) {
+            //Calculate indices once per i iteration
+            int inn = (i == 0) ? n[0]-2 : i-1;
+            int ipp = i+1;
+            bool is_first_row = (i == 0);
+            
             for (int j = 1; j < n[1]-1; j++) {
-                int inn, ipp;
-                
-                if (i == 0) {
-                    inn = n[0]-2;
-                    ipp = i+1;
-                } else {
-                    inn = i-1;
-                    ipp = i+1;
-                }
-                
                 int jpp = j+1;
                 int jnn = j-1;
                 
@@ -1822,20 +1830,20 @@ public:
                            bs(i,j)*bne(i,jnn)) / bp(i,j);
                 
                 bne(i,j) = ane(i,j) / bp(i,j);
-                
-                // Handle periodic boundary condition
-                if (i == 0) {
-                    bsw(n[0]-1,j) = bsw(i,j);
-                    bn(n[0]-1,j) = bn(i,j);
-                    bs(n[0]-1,j) = bs(i,j);
-                    bse(n[0]-1,j) = bse(i,j);
-                    bnw(n[0]-1,j) = bnw(i,j);
-                    bne(n[0]-1,j) = bne(i,j);
-                    be(n[0]-1,j) = be(i,j);
-                    bw(n[0]-1,j) = bw(i,j);
-                    bp(n[0]-1,j) = bp(i,j);
-                }
             }
+        }
+        
+        //Handle periodic boundary condition once after loop
+        for (int j = 1; j < n[1]-1; j++) {
+            bsw(n[0]-1,j) = bsw(0,j);
+            bn(n[0]-1,j) = bn(0,j);
+            bs(n[0]-1,j) = bs(0,j);
+            bse(n[0]-1,j) = bse(0,j);
+            bnw(n[0]-1,j) = bnw(0,j);
+            bne(n[0]-1,j) = bne(0,j);
+            be(n[0]-1,j) = be(0,j);
+            bw(n[0]-1,j) = bw(0,j);
+            bp(n[0]-1,j) = bp(0,j);
         }
         
         // Initialize qp and del arrays
@@ -1845,6 +1853,7 @@ public:
                 del(i,j) = 0.0;
             }
         }        
+        
         // Main iteration loop
         for (int iter = 0; iter < maxiter; iter++) {
             
@@ -1859,17 +1868,12 @@ public:
             
             // Forward sweep - compute residual and qp
             for (int i = 0; i < n[0]-1; i++) {
+                //Calculate indices once per i iteration
+                int inn = (i == 0) ? n[0]-2 : i-1;
+                int ipp = i+1;
+                bool is_first_row = (i == 0);
+                
                 for (int j = 1; j < n[1]-1; j++) {
-                    int inn, ipp;
-                    
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        ipp = i+1;
-                    } else {
-                        inn = i-1;
-                        ipp = i+1;
-                    }
-                    
                     int jpp = j+1;
                     int jnn = j-1;
                     
@@ -1881,23 +1885,22 @@ public:
                                 ase(i,j)*phi(ipp,jnn);
                     
                     ssum += fabs(res(i,j));
-                    // std::cout << ssum << std::endl;
-
                     
                     // Forward substitution
                     qp(i,j) = (res(i,j) - bs(i,j)*qp(i,jnn) - bw(i,j)*qp(inn,j) - 
                                bsw(i,j)*qp(inn,jnn)) / bp(i,j);
-                    
-                    // Handle periodic boundary condition
-                    if (i == 0) {
-                        res(n[0]-1,j) = res(i,j);
-                        qp(n[0]-1,j) = qp(i,j);
-                    }
                 }
             }
             
+            // Handle periodic boundary condition once after loop
+            for (int j = 1; j < n[1]-1; j++) {
+                res(n[0]-1,j) = res(0,j);
+                qp(n[0]-1,j) = qp(0,j);
+            }
+            
             // Normalize residual for convergence check
-            double sumnor, sumav;
+            //sumnor now properly initialized at function start
+            double sumav;
             if (iter == 0) {
                 if (ssum != 0.0) {
                     sumnor = ssum;
@@ -1906,22 +1909,16 @@ public:
                 }
             }
             
-            // std::cout << "sumnor: " << sumnor << std::endl;
             sumav = ssum / sumnor;
             
             // Backward sweep - update phi values
             for (int i = n[0]-2; i >= 0; i--) {
+                //Calculate indices once per i iteration
+                int inn = (i == 0) ? n[0]-2 : i-1;
+                int ipp = i+1;
+                bool is_first_row = (i == 0);
+                
                 for (int j = n[1]-2; j >= 1; j--) {
-                    int inn, ipp;
-                    
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        ipp = i+1;
-                    } else {
-                        inn = i-1;
-                        ipp = i+1;
-                    }
-                    
                     int jpp = j+1;
                     int jnn = j-1;
                     
@@ -1930,15 +1927,13 @@ public:
                                 bne(i,j)*del(ipp,jpp);
                     
                     phi(i,j) = phi(i,j) + del(i,j);
-                    
-                    // Handle periodic boundary condition
-                    if (i == 0) {
-                        phi(n[0]-1,j) = phi(i,j);
-                    }
                 }
             }
-
-            // std::cout << iter << " " << sumav << " " << tol << std::endl;
+            
+            //Handle periodic boundary condition once after loop
+            for (int j = 1; j < n[1]-1; j++) {
+                phi(n[0]-1,j) = phi(0,j);
+            }
 
             // Check convergence
             if (sumav < tol) {
@@ -1957,158 +1952,107 @@ public:
             blitz::Array<double, 2>& anee, blitz::Array<double, 2>& anww, blitz::Array<double, 2>& aee, 
             blitz::Array<double, 2>& aww, blitz::Array<double, 2>& phi, blitz::Array<double, 2>& q) {
         
-        int np1 = phi.extent(0);
-        int np2 = phi.extent(1);
-        
-        blitz::Array<double, 2> res{np1, np2};
-        blitz::Array<double, 2> phio{np1, np2};
         double tol = 0.75e-2;
         int maxiter = 100000;
+        double sumnor = 0.0;
         
         for (int iter = 0; iter < maxiter; iter++) {
-            
-            // Store old phi values
-            for (int i = 0; i < n[0]; i++) {
-                for (int j = 0; j < n[1]; j++) {
-                    phio(i,j) = phi(i,j);
-                }
-            }
-            
             double ssum = 0.0;
             
-            // Compute residual
+            // SINGLE PASS: Compute residual and update phi together
             for (int i = 0; i < n[0]-1; i++) {
+                // Calculate neighbor indices ONCE per i
+                int inn = (i == 0) ? n[0]-2 : i-1;
+                int inn2 = (i <= 1) ? ((i == 0) ? n[0]-3 : n[0]-2) : i-2;
+                int ipp = i+1;
+                int ipp2 = (i == n[0]-2) ? 1 : i+2;
+                
+                bool is_first_row = (i == 0);
+                
                 for (int j = 1; j < n[1]-1; j++) {
-                    int inn = i-1;
-                    int inn2 = i-2;
-                    int ipp = i+1;
-                    int ipp2 = i+2;
-                    
                     int jpp = j+1;
-                    int jpp2 = j+2;
                     int jnn = j-1;
+                    int jpp2 = j+2;
                     int jnn2 = j-2;
                     
-                    // Handle periodic boundary conditions
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        inn2 = n[0]-3;
-                    }
+                    double phi_new;
+                    double res;
                     
-                    if (i == 1) {
-                        inn2 = n[0]-2;
-                    }
-                    
-                    if (i == n[0]-2) {
-                        ipp2 = 1;
-                    }
-                    
-                    // Compute residual based on order
                     if (j == 1 || j == n[1]-2) {
                         // Second order stencil
-                        res(i,j) = q(i,j) - ap(i,j)*phi(i,j) - ae(i,j)*phi(ipp,j) - 
-                                    an(i,j)*phi(i,jpp) - as(i,j)*phi(i,jnn) - 
-                                    aw(i,j)*phi(inn,j) - anw(i,j)*phi(inn,jpp) - 
-                                    ane(i,j)*phi(ipp,jpp) - asw(i,j)*phi(inn,jnn) - 
-                                    ase(i,j)*phi(ipp,jnn);
+                        // Compute RHS (all terms except ap*phi)
+                        double rhs = q(i,j) - 
+                                ae(i,j)*phi(ipp,j) - 
+                                an(i,j)*phi(i,jpp) - 
+                                as(i,j)*phi(i,jnn) - 
+                                aw(i,j)*phi(inn,j) - 
+                                anw(i,j)*phi(inn,jpp) - 
+                                ane(i,j)*phi(ipp,jpp) - 
+                                asw(i,j)*phi(inn,jnn) - 
+                                ase(i,j)*phi(ipp,jnn);
+                        
+                        // Residual = RHS - ap*phi_old
+                        res = rhs - ap(i,j)*phi(i,j);
+                        
+                        // New phi value = RHS / ap
+                        phi_new = rhs / ap(i,j);
+                        
                     } else {
                         // Fourth order stencil
-                        res(i,j) = q(i,j) - ap(i,j)*phi(i,j) - ae(i,j)*phi(ipp,j) - 
-                                    an(i,j)*phi(i,jpp) - as(i,j)*phi(i,jnn) - 
-                                    aw(i,j)*phi(inn,j) - anw(i,j)*phi(inn,jpp) - 
-                                    ane(i,j)*phi(ipp,jpp) - asw(i,j)*phi(inn,jnn) - 
-                                    ase(i,j)*phi(ipp,jnn) - aee(i,j)*phi(ipp2,j) - 
-                                    aww(i,j)*phi(inn2,j) - annee(i,j)*phi(ipp2,jpp2) - 
-                                    anee(i,j)*phi(ipp2,jpp) - asee(i,j)*phi(ipp2,jnn) - 
-                                    assee(i,j)*phi(ipp2,jnn2) - anne(i,j)*phi(ipp,jpp2) - 
-                                    asse(i,j)*phi(ipp,jnn2) - annw(i,j)*phi(inn,jpp2) - 
-                                    assw(i,j)*phi(inn,jnn2) - annww(i,j)*phi(inn2,jpp2) - 
-                                    anww(i,j)*phi(inn2,jpp) - asww(i,j)*phi(inn2,jnn) - 
-                                    assww(i,j)*phi(inn2,jnn2) - ann(i,j)*phi(i,jpp2) - 
-                                    ass(i,j)*phi(i,jnn2);
+                        // Compute RHS (all terms except ap*phi)
+                        double rhs = q(i,j) - 
+                                ae(i,j)*phi(ipp,j) - 
+                                an(i,j)*phi(i,jpp) - 
+                                as(i,j)*phi(i,jnn) - 
+                                aw(i,j)*phi(inn,j) - 
+                                anw(i,j)*phi(inn,jpp) - 
+                                ane(i,j)*phi(ipp,jpp) - 
+                                asw(i,j)*phi(inn,jnn) - 
+                                ase(i,j)*phi(ipp,jnn) - 
+                                aee(i,j)*phi(ipp2,j) - 
+                                aww(i,j)*phi(inn2,j) - 
+                                annee(i,j)*phi(ipp2,jpp2) - 
+                                anee(i,j)*phi(ipp2,jpp) - 
+                                asee(i,j)*phi(ipp2,jnn) - 
+                                assee(i,j)*phi(ipp2,jnn2) - 
+                                anne(i,j)*phi(ipp,jpp2) - 
+                                asse(i,j)*phi(ipp,jnn2) - 
+                                annw(i,j)*phi(inn,jpp2) - 
+                                assw(i,j)*phi(inn,jnn2) - 
+                                annww(i,j)*phi(inn2,jpp2) - 
+                                anww(i,j)*phi(inn2,jpp) - 
+                                asww(i,j)*phi(inn2,jnn) - 
+                                assww(i,j)*phi(inn2,jnn2) - 
+                                ann(i,j)*phi(i,jpp2) - 
+                                ass(i,j)*phi(i,jnn2);
+                        
+                        // Residual = RHS - ap*phi_old
+                        res = rhs - ap(i,j)*phi(i,j);
+                        
+                        // New phi value = RHS / ap
+                        phi_new = rhs / ap(i,j);
                     }
                     
-                    ssum += fabs(res(i,j));
-                    // std::cout << "Ssum: " << ssum << std::endl;
-
+                    // Accumulate residual
+                    ssum += fabs(res);
+                    
+                    // Update phi immediately (Gauss-Seidel style)
+                    phi(i,j) = phi_new;
+                    
                     // Handle periodic boundary condition
-                    if (i == 0) {
-                        res(n[0]-1,j) = res(i,j);
+                    if (is_first_row) {
+                        phi(n[0]-1,j) = phi_new;
                     }
                 }
             }
             
-            // Normalize residual for convergence check
-            double sumnor, sumav;
+            // Compute sumnor only on first iteration
             if (iter == 0) {
-                if (ssum != 0.0) {
-                    sumnor = ssum;
-                } else {
-                    sumnor = 1.0;
-                }
+                sumnor = (ssum != 0.0) ? ssum : 1.0;
             }
             
-            sumav = ssum / sumnor;
+            double sumav = ssum / sumnor;
             
-            // Update phi values using Gauss-Seidel
-            for (int i = 0; i < n[0]-1; i++) {
-                for (int j = 1; j < n[1]-1; j++) {
-                    int inn = i-1;
-                    int inn2 = i-2;
-                    int ipp = i+1;
-                    int ipp2 = i+2;
-                    
-                    int jpp = j+1;
-                    int jpp2 = j+2;
-                    int jnn = j-1;
-                    int jnn2 = j-2;
-                    
-                    // Handle periodic boundary conditions
-                    if (i == 0) {
-                        inn = n[0]-2;
-                        inn2 = n[0]-3;
-                    }
-                    
-                    if (i == 1) {
-                        inn2 = n[0]-2;
-                    }
-                    
-                    if (i == n[0]-2) {
-                        ipp2 = 1;
-                    }
-                    
-                    // Update phi based on order
-                    if (j == 1 || j == n[1]-2) {
-                        // Second order stencil
-                        phi(i,j) = (q(i,j) - ae(i,j)*phi(ipp,j) - an(i,j)*phi(i,jpp) - 
-                                    as(i,j)*phi(i,jnn) - aw(i,j)*phi(inn,j) - 
-                                    anw(i,j)*phi(inn,jpp) - ane(i,j)*phi(ipp,jpp) - 
-                                    asw(i,j)*phi(inn,jnn) - ase(i,j)*phi(ipp,jnn)) / ap(i,j);
-                    } else {
-                        // Fourth order stencil
-                        phi(i,j) = (q(i,j) - ae(i,j)*phi(ipp,j) - an(i,j)*phi(i,jpp) - 
-                                    as(i,j)*phi(i,jnn) - aw(i,j)*phi(inn,j) - 
-                                    anw(i,j)*phi(inn,jpp) - ane(i,j)*phi(ipp,jpp) - 
-                                    asw(i,j)*phi(inn,jnn) - ase(i,j)*phi(ipp,jnn) - 
-                                    aee(i,j)*phi(ipp2,j) - aww(i,j)*phi(inn2,j) - 
-                                    annee(i,j)*phi(ipp2,jpp2) - anee(i,j)*phi(ipp2,jpp) - 
-                                    asee(i,j)*phi(ipp2,jnn) - assee(i,j)*phi(ipp2,jnn2) - 
-                                    anne(i,j)*phi(ipp,jpp2) - asse(i,j)*phi(ipp,jnn2) - 
-                                    annw(i,j)*phi(inn,jpp2) - assw(i,j)*phi(inn,jnn2) - 
-                                    annww(i,j)*phi(inn2,jpp2) - anww(i,j)*phi(inn2,jpp) - 
-                                    asww(i,j)*phi(inn2,jnn) - assww(i,j)*phi(inn2,jnn2) - 
-                                    ann(i,j)*phi(i,jpp2) - ass(i,j)*phi(i,jnn2)) / ap(i,j);
-                    }
-                    
-                    // Handle periodic boundary condition
-                    if (i == 0) {
-                        phi(n[0]-1,j) = phi(i,j);
-                    }
-                }
-            }
-
-            // std::cout << "Iteration: " << iter << " " << sumav << " " << tol << std::endl;
-
             // Check convergence
             if (sumav < tol) {
                 break;
