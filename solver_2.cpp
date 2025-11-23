@@ -1,4 +1,7 @@
-// changed gauss + contigous allocation speed == to fortran code
+// This is optimized wrt solver_1.cpp
+// By making use of contigious alloction block of array rows
+// Implemented by changing sequence of nested for loops
+
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -6,7 +9,6 @@
 #include <iomanip>
 #include <chrono>
 using namespace std;
-
 int n[2];
 string INPUT_FILE = "INP.DAT";
 
@@ -14,55 +16,42 @@ class Solver {
 public:
     static const int np1 = 350;
     static const int np2 = 570;
-    
-    // ADD THESE - calculate strides once
-    static const int STRIDE_I = np2;              // 570
-    static const int STRIDE_K = np1 * np2;        // 199500
-    
-    // Keep idx functions for rare use
-    inline int idx2(int i, int j) const { 
-        return i * STRIDE_I + j; 
-    }
-    
-    inline int idx3(int k, int i, int j) const { 
-        return k * STRIDE_K + i * STRIDE_I + j; 
-    }
 
     // 2D coefficient matrices (pressure equation) - converted to pointers
-    double *ae;
-    double *aw;
-    double *as;
-    double *an;
-    double *ase;
-    double *ane;
-    double *asw;
-    double *anw;
-    double *ap;
+    double **ae;
+    double **aw;
+    double **as;
+    double **an;
+    double **ase;
+    double **ane;
+    double **asw;
+    double **anw;
+    double **ap;
 
-    double *alph, *beta, *gamma;
+    double **alph, **beta, **gamma;
     string filnam[100], resfile;
 
     // 2D velocity coefficient matrices (au* series)
-    double *aue;
-    double *auw;
-    double *aun;
-    double *aus;
-    double *aune;
-    double *ause;
-    double *ausw;
-    double *aunw;
-    double *aup;
+    double **aue;
+    double **auw;
+    double **aun;
+    double **aus;
+    double **aune;
+    double **ause;
+    double **ausw;
+    double **aunw;
+    double **aup;
 
     // 2D temperature coefficient matrices (at* series)
-    double *ate;
-    double *atw;
-    double *atn;
-    double *ats;
-    double *atne;
-    double *atse;
-    double *atsw;
-    double *atnw;
-    double *atp;
+    double **ate;
+    double **atw;
+    double **atn;
+    double **ats;
+    double **atne;
+    double **atse;
+    double **atsw;
+    double **atnw;
+    double **atp;
 
     // 1D boundary coefficient arrays (b* series)
     double *bus;
@@ -79,77 +68,77 @@ public:
     double *btnw;
 
     // 2D higher-order velocity coefficient matrices (au** series)
-    double *aunn;
-    double *auss;
-    double *auee;
-    double *auww;
-    double *aunnee;
-    double *aunnww;
-    double *aussee;
-    double *aussww;
-    double *aunne;
-    double *aunnw;
-    double *ausse;
-    double *aussw;
-    double *aunee;
-    double *aunww;
-    double *ausee;
-    double *ausww;
-    double *auup;
+    double **aunn;
+    double **auss;
+    double **auee;
+    double **auww;
+    double **aunnee;
+    double **aunnww;
+    double **aussee;
+    double **aussww;
+    double **aunne;
+    double **aunnw;
+    double **ausse;
+    double **aussw;
+    double **aunee;
+    double **aunww;
+    double **ausee;
+    double **ausww;
+    double **auup;
 
     // 2D higher-order temperature coefficient matrices (at** series)
-    double *atnn;
-    double *atss;
-    double *atee;
-    double *atww;
-    double *atnnee;
-    double *atnnww;
-    double *atssee;
-    double *atssww;
-    double *atnne;
-    double *atnnw;
-    double *atsse;
-    double *atssw;
-    double *atnee;
-    double *atnww;
-    double *atsee;
-    double *atsww;
-    double *atup;
+    double **atnn;
+    double **atss;
+    double **atee;
+    double **atww;
+    double **atnnee;
+    double **atnnww;
+    double **atssee;
+    double **atssww;
+    double **atnne;
+    double **atnnw;
+    double **atsse;
+    double **atssw;
+    double **atnee;
+    double **atnww;
+    double **atsee;
+    double **atsww;
+    double **atup;
 
     // 2D grid and transformation arrays
-    double *ajac;
-    double *dxix;
-    double *dxiy;
-    double *dex;
-    double *dey;
-    double *q;
-    double *si;
-    double *dil;
-    double *qup;
-    double *qvp;
-    double *qu;
-    double *qv;
-    double *qt;
-    double *p1;
-    double *q1;
-    double *sol;
-    double *pcor;
-    double *p;
-    double *uxi;
-    double *uet;
-    double *vort;
+    double **ajac;
+    double **dxix;
+    double **dxiy;
+    double **dex;
+    double **dey;
+    double **q;
+    double **si;
+    double **dil;
+    double **qup;
+    double **qvp;
+    double **qu;
+    double **qv;
+    double **qt;
+    double **p1;
+    double **q1;
+    double **sol;
+    double **pcor;
+    double **p;
+    double **uxi;
+    double **uet;
+    double **vort;
 
     // 3D arrays - converted to triple pointers
-    double *x;
-    double *u;
-    double *h;
-    double *up;
-    double *uold;
-    double *us;
+    double ***x;
+    double ***u;
+    double ***h;
+    double ***up;
+    double ***uold;
+    double ***us;
 
     // 2D boundary velocity arrays
-    double *vr;
-    double *vth;
+    double **vr;
+    double **vth;
 
     // 1D arrays
     double dxi[2];
@@ -200,181 +189,218 @@ public:
     int loop, time, iiflag, inn, ipp, jnn, jpp;
     double t_period, icycles, tstart, t_incr, i_loop, loop_snap, vnn, dmax;
 
+    // Helper functions for dynamic allocation
+    double** allocate2D(int rows, int cols) {
+        double** arr = new double*[rows];
+        for (int i = 0; i < rows; i++) {
+            arr[i] = new double[cols];
+        }
+        return arr;
+    }
+
+    double*** allocate3D(int depth, int rows, int cols) {
+        double*** arr = new double**[depth];
+        for (int i = 0; i < depth; i++) {
+            arr[i] = new double*[rows];
+            for (int j = 0; j < rows; j++) {
+                arr[i][j] = new double[cols];
+            }
+        }
+        return arr;
+    }
+
+    void deallocate2D(double** arr, int rows) {
+        for (int i = 0; i < rows; i++) {
+            delete[] arr[i];
+        }
+        delete[] arr;
+    }
+
+    void deallocate3D(double*** arr, int depth, int rows) {
+        for (int i = 0; i < depth; i++) {
+            for (int j = 0; j < rows; j++) {
+                delete[] arr[i][j];
+            }
+            delete[] arr[i];
+        }
+        delete[] arr;
+    }
+
     void allocateArrays() {
         // 2D coefficient matrices (pressure equation)
-       ae = new double[np1 * np2]();
-        aw = new double[np1 * np2]();
-        as = new double[np1 * np2]();
-        an = new double[np1 * np2]();
-        ase = new double[np1 * np2]();
-        ane = new double[np1 * np2]();
-        asw = new double[np1 * np2]();
-        anw = new double[np1 * np2]();
-        ap = new double[np1 * np2]();
+        ae = allocate2D(np1, np2);
+        aw = allocate2D(np1, np2);
+        as = allocate2D(np1, np2);
+        an = allocate2D(np1, np2);
+        ase = allocate2D(np1, np2);
+        ane = allocate2D(np1, np2);
+        asw = allocate2D(np1, np2);
+        anw = allocate2D(np1, np2);
+        ap = allocate2D(np1, np2);
 
-        alph = new double[np1 * np2]();
-        beta = new double[np1 * np2]();
-        gamma = new double[np1 * np2]();
+        alph = allocate2D(np1, np2);
+        beta = allocate2D(np1, np2);
+        gamma = allocate2D(np1, np2);
 
         // 2D velocity coefficient matrices
-        aue = new double[np1 * np2]();
-        auw = new double[np1 * np2]();
-        aun = new double[np1 * np2]();
-        aus = new double[np1 * np2]();
-        aune = new double[np1 * np2]();
-        ause = new double[np1 * np2]();
-        ausw = new double[np1 * np2]();
-        aunw = new double[np1 * np2]();
-        aup = new double[np1 * np2]();
+        aue = allocate2D(np1, np2);
+        auw = allocate2D(np1, np2);
+        aun = allocate2D(np1, np2);
+        aus = allocate2D(np1, np2);
+        aune = allocate2D(np1, np2);
+        ause = allocate2D(np1, np2);
+        ausw = allocate2D(np1, np2);
+        aunw = allocate2D(np1, np2);
+        aup = allocate2D(np1, np2);
 
         // 2D temperature coefficient matrices
-        ate = new double[np1 * np2]();
-        atw = new double[np1 * np2]();
-        atn = new double[np1 * np2]();
-        ats = new double[np1 * np2]();
-        atne = new double[np1 * np2]();
-        atse = new double[np1 * np2]();
-        atsw = new double[np1 * np2]();
-        atnw = new double[np1 * np2]();
-        atp = new double[np1 * np2]();
+        ate = allocate2D(np1, np2);
+        atw = allocate2D(np1, np2);
+        atn = allocate2D(np1, np2);
+        ats = allocate2D(np1, np2);
+        atne = allocate2D(np1, np2);
+        atse = allocate2D(np1, np2);
+        atsw = allocate2D(np1, np2);
+        atnw = allocate2D(np1, np2);
+        atp = allocate2D(np1, np2);
 
         // 1D boundary coefficient arrays
-        bus = new double[np1]();
-        buse = new double[np1]();
-        busw = new double[np1]();
-        bts = new double[np1]();
-        btse = new double[np1]();
-        btsw = new double[np1]();
-        bun = new double[np1]();
-        bune = new double[np1]();
-        bunw = new double[np1]();
-        btn = new double[np1]();
-        btne = new double[np1]();
-        btnw = new double[np1]();
+        bus = new double[np1];
+        buse = new double[np1];
+        busw = new double[np1];
+        bts = new double[np1];
+        btse = new double[np1];
+        btsw = new double[np1];
+        bun = new double[np1];
+        bune = new double[np1];
+        bunw = new double[np1];
+        btn = new double[np1];
+        btne = new double[np1];
+        btnw = new double[np1];
 
         // 2D higher-order velocity coefficient matrices
-        aunn = new double[np1 * np2]();
-        auss = new double[np1 * np2]();
-        auee = new double[np1 * np2]();
-        auww = new double[np1 * np2]();
-        aunnee = new double[np1 * np2]();
-        aunnww = new double[np1 * np2]();
-        aussee = new double[np1 * np2]();
-        aussww = new double[np1 * np2]();
-        aunne = new double[np1 * np2]();
-        aunnw = new double[np1 * np2]();
-        ausse = new double[np1 * np2]();
-        aussw = new double[np1 * np2]();
-        aunee = new double[np1 * np2]();
-        aunww = new double[np1 * np2]();
-        ausee = new double[np1 * np2]();
-        ausww = new double[np1 * np2]();
-        auup = new double[np1 * np2]();
+        aunn = allocate2D(np1, np2);
+        auss = allocate2D(np1, np2);
+        auee = allocate2D(np1, np2);
+        auww = allocate2D(np1, np2);
+        aunnee = allocate2D(np1, np2);
+        aunnww = allocate2D(np1, np2);
+        aussee = allocate2D(np1, np2);
+        aussww = allocate2D(np1, np2);
+        aunne = allocate2D(np1, np2);
+        aunnw = allocate2D(np1, np2);
+        ausse = allocate2D(np1, np2);
+        aussw = allocate2D(np1, np2);
+        aunee = allocate2D(np1, np2);
+        aunww = allocate2D(np1, np2);
+        ausee = allocate2D(np1, np2);
+        ausww = allocate2D(np1, np2);
+        auup = allocate2D(np1, np2);
 
         // 2D higher-order temperature coefficient matrices
-        atnn = new double[np1 * np2]();
-        atss = new double[np1 * np2]();
-        atee = new double[np1 * np2]();
-        atww = new double[np1 * np2]();
-        atnnee = new double[np1 * np2]();
-        atnnww = new double[np1 * np2]();
-        atssee = new double[np1 * np2]();
-        atssww = new double[np1 * np2]();
-        atnne = new double[np1 * np2]();
-        atnnw = new double[np1 * np2]();
-        atsse = new double[np1 * np2]();
-        atssw = new double[np1 * np2]();
-        atnee = new double[np1 * np2]();
-        atnww = new double[np1 * np2]();
-        atsee = new double[np1 * np2]();
-        atsww = new double[np1 * np2]();
-        atup = new double[np1 * np2]();
+        atnn = allocate2D(np1, np2);
+        atss = allocate2D(np1, np2);
+        atee = allocate2D(np1, np2);
+        atww = allocate2D(np1, np2);
+        atnnee = allocate2D(np1, np2);
+        atnnww = allocate2D(np1, np2);
+        atssee = allocate2D(np1, np2);
+        atssww = allocate2D(np1, np2);
+        atnne = allocate2D(np1, np2);
+        atnnw = allocate2D(np1, np2);
+        atsse = allocate2D(np1, np2);
+        atssw = allocate2D(np1, np2);
+        atnee = allocate2D(np1, np2);
+        atnww = allocate2D(np1, np2);
+        atsee = allocate2D(np1, np2);
+        atsww = allocate2D(np1, np2);
+        atup = allocate2D(np1, np2);
 
         // 2D grid and transformation arrays
-        ajac = new double[np1 * np2]();
-        dxix = new double[np1 * np2]();
-        dxiy = new double[np1 * np2]();
-        dex = new double[np1 * np2]();
-        dey = new double[np1 * np2]();
-        q = new double[np1 * np2]();
-        si = new double[np1 * np2]();
-        dil = new double[np1 * np2]();
-        qup = new double[np1 * np2]();
-        qvp = new double[np1 * np2]();
-        qu = new double[np1 * np2]();
-        qv = new double[np1 * np2]();
-        qt = new double[np1 * np2]();
-        p1 = new double[np1 * np2]();
-        q1 = new double[np1 * np2]();
-        sol = new double[np1 * np2]();
-        pcor = new double[np1 * np2]();
-        p = new double[np1 * np2]();
-        uxi = new double[np1 * np2]();
-        uet = new double[np1 * np2]();
-        vort = new double[np1 * np2]();
+        ajac = allocate2D(np1, np2);
+        dxix = allocate2D(np1, np2);
+        dxiy = allocate2D(np1, np2);
+        dex = allocate2D(np1, np2);
+        dey = allocate2D(np1, np2);
+        q = allocate2D(np1, np2);
+        si = allocate2D(np1, np2);
+        dil = allocate2D(np1, np2);
+        qup = allocate2D(np1, np2);
+        qvp = allocate2D(np1, np2);
+        qu = allocate2D(np1, np2);
+        qv = allocate2D(np1, np2);
+        qt = allocate2D(np1, np2);
+        p1 = allocate2D(np1, np2);
+        q1 = allocate2D(np1, np2);
+        sol = allocate2D(np1, np2);
+        pcor = allocate2D(np1, np2);
+        p = allocate2D(np1, np2);
+        uxi = allocate2D(np1, np2);
+        uet = allocate2D(np1, np2);
+        vort = allocate2D(np1, np2);
 
         // 3D arrays
-        x = new double[2 * np1 * np2]();
-        u = new double[3 * np1 * np2]();
-        h = new double[3 * np1 * np2]();
-        up = new double[3 * np1 * np2]();
-        uold = new double[3 * np1 * np2]();
-        us = new double[3 * np1 * np2]();
+        x = allocate3D(2, np1, np2);
+        u = allocate3D(3, np1, np2);
+        h = allocate3D(3, np1, np2);
+        up = allocate3D(3, np1, np2);
+        uold = allocate3D(3, np1, np2);
+        us = allocate3D(3, np1, np2);
 
         // 2D boundary velocity arrays
-        vr = new double[2 * np1]();
-        vth = new double[2 * np1]();
+        vr = allocate2D(2, np1);
+        vth = allocate2D(2, np1);
 
         // 1D arrays
-        xnox = new double[np1]();
-        xnix = new double[np1]();
-        xnoy = new double[np1]();
-        xniy = new double[np1]();
-        xnixi = new double[np1]();
-        xnoxi = new double[np1]();
-        xniet = new double[np1]();
-        xnoet = new double[np1]();
-        vdotn = new double[np1]();
-        thi = new double[np1]();
+        xnox = new double[np1];
+        xnix = new double[np1];
+        xnoy = new double[np1];
+        xniy = new double[np1];
+        xnixi = new double[np1];
+        xnoxi = new double[np1];
+        xniet = new double[np1];
+        xnoet = new double[np1];
+        vdotn = new double[np1];
+        thi = new double[np1];
     }
 
     void deallocateArrays() {
         // 2D coefficient matrices (pressure equation)
-        delete[] ae;
-        delete[] aw;
-        delete[] as;
-        delete[] an;
-        delete[] ase;
-        delete[] ane;
-        delete[] asw;
-        delete[] anw;
-        delete[] ap;
+        deallocate2D(ae, np1);
+        deallocate2D(aw, np1);
+        deallocate2D(as, np1);
+        deallocate2D(an, np1);
+        deallocate2D(ase, np1);
+        deallocate2D(ane, np1);
+        deallocate2D(asw, np1);
+        deallocate2D(anw, np1);
+        deallocate2D(ap, np1);
 
-        delete[] alph;
-        delete[] beta;
-        delete[] gamma;
+        deallocate2D(alph, np1);
+        deallocate2D(beta, np1);
+        deallocate2D(gamma, np1);
 
         // 2D velocity coefficient matrices
-        delete[] aue;
-        delete[] auw;
-        delete[] aun;
-        delete[] aus;
-        delete[] aune;
-        delete[] ause;
-        delete[] ausw;
-        delete[] aunw;
-        delete[] aup;
+        deallocate2D(aue, np1);
+        deallocate2D(auw, np1);
+        deallocate2D(aun, np1);
+        deallocate2D(aus, np1);
+        deallocate2D(aune, np1);
+        deallocate2D(ause, np1);
+        deallocate2D(ausw, np1);
+        deallocate2D(aunw, np1);
+        deallocate2D(aup, np1);
 
         // 2D temperature coefficient matrices
-        delete[] ate;
-        delete[] atw;
-        delete[] atn;
-        delete[] ats;
-        delete[] atne;
-        delete[] atse;
-        delete[] atsw;
-        delete[] atnw;
-        delete[] atp;
+        deallocate2D(ate, np1);
+        deallocate2D(atw, np1);
+        deallocate2D(atn, np1);
+        deallocate2D(ats, np1);
+        deallocate2D(atne, np1);
+        deallocate2D(atse, np1);
+        deallocate2D(atsw, np1);
+        deallocate2D(atnw, np1);
+        deallocate2D(atp, np1);
 
         // 1D boundary coefficient arrays
         delete[] bus;
@@ -391,77 +417,77 @@ public:
         delete[] btnw;
 
         // 2D higher-order velocity coefficient matrices
-        delete[] aunn;
-        delete[] auss;
-        delete[] auee;
-        delete[] auww;
-        delete[] aunnee;
-        delete[] aunnww;
-        delete[] aussee;
-        delete[] aussww;
-        delete[] aunne;
-        delete[] aunnw;
-        delete[] ausse;
-        delete[] aussw;
-        delete[] aunee;
-        delete[] aunww;
-        delete[] ausee;
-        delete[] ausww;
-        delete[] auup;
+        deallocate2D(aunn, np1);
+        deallocate2D(auss, np1);
+        deallocate2D(auee, np1);
+        deallocate2D(auww, np1);
+        deallocate2D(aunnee, np1);
+        deallocate2D(aunnww, np1);
+        deallocate2D(aussee, np1);
+        deallocate2D(aussww, np1);
+        deallocate2D(aunne, np1);
+        deallocate2D(aunnw, np1);
+        deallocate2D(ausse, np1);
+        deallocate2D(aussw, np1);
+        deallocate2D(aunee, np1);
+        deallocate2D(aunww, np1);
+        deallocate2D(ausee, np1);
+        deallocate2D(ausww, np1);
+        deallocate2D(auup, np1);
 
         // 2D higher-order temperature coefficient matrices
-        delete[] atnn;
-        delete[] atss;
-        delete[] atee;
-        delete[] atww;
-        delete[] atnnee;
-        delete[] atnnww;
-        delete[] atssee;
-        delete[] atssww;
-        delete[] atnne;
-        delete[] atnnw;
-        delete[] atsse;
-        delete[] atssw;
-        delete[] atnee;
-        delete[] atnww;
-        delete[] atsee;
-        delete[] atsww;
-        delete[] atup;
+        deallocate2D(atnn, np1);
+        deallocate2D(atss, np1);
+        deallocate2D(atee, np1);
+        deallocate2D(atww, np1);
+        deallocate2D(atnnee, np1);
+        deallocate2D(atnnww, np1);
+        deallocate2D(atssee, np1);
+        deallocate2D(atssww, np1);
+        deallocate2D(atnne, np1);
+        deallocate2D(atnnw, np1);
+        deallocate2D(atsse, np1);
+        deallocate2D(atssw, np1);
+        deallocate2D(atnee, np1);
+        deallocate2D(atnww, np1);
+        deallocate2D(atsee, np1);
+        deallocate2D(atsww, np1);
+        deallocate2D(atup, np1);
 
         // 2D grid and transformation arrays
-        delete[] ajac;
-        delete[] dxix;
-        delete[] dxiy;
-        delete[] dex;
-        delete[] dey;
-        delete[] q;
-        delete[] si;
-        delete[] dil;
-        delete[] qup;
-        delete[] qvp;
-        delete[] qu;
-        delete[] qv;
-        delete[] qt;
-        delete[] p1;
-        delete[] q1;
-        delete[] sol;
-        delete[] pcor;
-        delete[] p;
-        delete[] uxi;
-        delete[] uet;
-        delete[] vort;
+        deallocate2D(ajac, np1);
+        deallocate2D(dxix, np1);
+        deallocate2D(dxiy, np1);
+        deallocate2D(dex, np1);
+        deallocate2D(dey, np1);
+        deallocate2D(q, np1);
+        deallocate2D(si, np1);
+        deallocate2D(dil, np1);
+        deallocate2D(qup, np1);
+        deallocate2D(qvp, np1);
+        deallocate2D(qu, np1);
+        deallocate2D(qv, np1);
+        deallocate2D(qt, np1);
+        deallocate2D(p1, np1);
+        deallocate2D(q1, np1);
+        deallocate2D(sol, np1);
+        deallocate2D(pcor, np1);
+        deallocate2D(p, np1);
+        deallocate2D(uxi, np1);
+        deallocate2D(uet, np1);
+        deallocate2D(vort, np1);
 
         // 3D arrays
-        delete[] x;
-        delete[] u;
-        delete[] h;
-        delete[] up;
-        delete[] uold;
-        delete[] us;
+        deallocate3D(x, 2, np1);
+        deallocate3D(u, 3, np1);
+        deallocate3D(h, 3, np1);
+        deallocate3D(up, 3, np1);
+        deallocate3D(uold, 3, np1);
+        deallocate3D(us, 3, np1);
 
         // 2D boundary velocity arrays
-        delete[] vr;
-        delete[] vth;
+        deallocate2D(vr, 2);
+        deallocate2D(vth, 2);
 
         // 1D arrays
         delete[] xnox;
@@ -475,7 +501,22 @@ public:
         delete[] vdotn;
         delete[] thi;
     }
+    
+    void export_array_2d(const std::string& filename, double **arr, 
+                     int n0, int n1, const std::string& varname) {
+        std::ofstream file(filename, std::ios::app);
+        file << " VAR=" << varname << "\n";
+        file << std::scientific << std::setprecision(16);
 
+        for(int j = 0; j < n1; j++) {
+            for(int i = 0; i < n0; i++) {
+                file << i << " " << j << " " << arr[i][j] << "\n";
+            }
+        }
+        file << "\n";
+        file.close();
+    }
+    
     Solver() {
         auto start = chrono::high_resolution_clock::now();
 
@@ -498,34 +539,26 @@ public:
         input_file >> ic1 >> ic2 >> ic3 >> ic4;
 
         for (int j = 0; j < n[1]; j++) {
-        int x0_base = j;              // x[0][0][j]
-        int x1_base = STRIDE_K + j;   // x[1][0][j]
-        
-        for (int i = 0; i < n[0]; i++) {
-                input_file >> aaa >> bbb >> x[x0_base] >> x[x1_base];
-                x0_base += STRIDE_I;  // Move to next row
-                x1_base += STRIDE_I;
+            for (int i = 0; i < n[0]; i++) {
+                input_file >> aaa >> bbb >> x[0][i][j] >> x[1][i][j];
             }
         }
 
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;  // Start at column j, row 0
-            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
-                input_file >> dxix[idx] >> dxiy[idx] >> dex[idx] >> dey[idx];
+            for (int i = 0; i < n[0]; i++) {
+                input_file >> dxix[i][j] >> dxiy[i][j] >> dex[i][j] >> dey[i][j];
             }
         }
 
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;
-            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
-                input_file >> alph[idx] >> beta[idx] >> gamma[idx];
+            for (int i = 0; i < n[0]; i++) {
+                input_file >> alph[i][j] >> beta[i][j] >> gamma[i][j];
             }
         }
 
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;
-            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
-                input_file >> ajac[idx];
+            for (int i = 0; i < n[0]; i++) {
+                input_file >> ajac[i][j];
             }
         }
 
@@ -534,10 +567,10 @@ public:
         }
 
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;
-            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
-                p1[idx] = 0.0;
-                q1[idx] = 0.0;
+            for (int i = 0; i < n[0]; i++) {
+                // input_file >> p1[i][j] >> q1[i][j];
+                p1[i][j] = 0.0;
+                q1[i][j] = 0.0;
             }
         }
 
@@ -545,11 +578,9 @@ public:
         irem = 0;
         n[1] = n[1] - irem;
         if (irem != 0) {
-            int row_base = (n[1]-1) * STRIDE_I;
             for (int i = 0; i < n[0]; i++) {
-                int idx = row_base + i;
-                xnox[i] = -dex[idx] / sqrt(gamma[idx]);
-                xnoy[i] = -dey[idx] / sqrt(gamma[idx]);
+                xnox[i] = -dex[i][n[1]-1] / sqrt(gamma[i][n[1]-1]);
+                xnoy[i] = -dey[i][n[1]-1] / sqrt(gamma[i][n[1]-1]);
             }
         }
 
@@ -578,29 +609,22 @@ public:
         // at inner first
         int j = 0;
         for (int i = 0; i < n[0]; i++) {
-            int idx = i * STRIDE_I + j;  // Calculate once
-            xnixi[i] = dxix[idx] * xnix[i] + dxiy[idx] * xniy[i];
-            xniet[i] = dex[idx] * xnix[i] + dey[idx] * xniy[i];
+            xnixi[i] = dxix[i][j] * xnix[i] + dxiy[i][j] * xniy[i];
+            xniet[i] = dex[i][j] * xnix[i] + dey[i][j] * xniy[i];
         }
 
         j = n[1]-1;
         for (int i = 0; i < n[0]; i++) {
-            int idx = i * STRIDE_I + j;
-            xnoxi[i] = dxix[idx] * xnox[i] + dxiy[idx] * xnoy[i];
-            xnoet[i] = dex[idx] * xnox[i] + dey[idx] * xnoy[i];
+            xnoxi[i] = dxix[i][j] * xnox[i] + dxiy[i][j] * xnoy[i];
+            xnoet[i] = dex[i][j] * xnox[i] + dey[i][j] * xnoy[i];
         }
 
         ofstream bound_file("bound.dat");
-        for (int j = 0; j < n[1]; j += n[1]-1) {
-            int x0_base = j;
-            int x1_base = STRIDE_K + j;
-            
+        for (int j = 0; j < n[1]; j+=n[1]-1) {
             for (int i = 0; i < n[0]; i++) {
-                bound_file << i << " " << j << " " << x[x0_base] << " " << x[x1_base] << " 1" << endl;
-                x0_base += STRIDE_I;
-                x1_base += STRIDE_I;
+                bound_file << i << " " << j << " " << x[0][i][j] << " " << x[1][i][j] << " " << " 1" << endl;
             }
-            bound_file << endl;
+            bound_file << endl; 
         }
         bound_file.close();
 
@@ -609,41 +633,25 @@ public:
         //-----------------------------------------------------
         // cout << "Applying initial conditions..." << endl;
         if (restart == 0) {
-        loop = 1;
-        time = 0;
-        
-        for (int j = 0; j < n[1]; j++) {
-            int idx_2d = j;
-            int u0_base = j;
-            int u1_base = STRIDE_K + j;
-            int u2_base = 2*STRIDE_K + j;
-            int up0_base = j;
-            int up1_base = STRIDE_K + j;
-            
-            for (int i = 0; i < n[0]; i++) {
-                u[u0_base] = uinf;
-                u[u1_base] = vinf;
-                u[u2_base] = 0.0;
+            loop = 1;
+            time = 0;
+            for (int j = 0; j < n[1]; j++) {
+                for (int i = 0; i < n[0]; i++) {
+                    u[0][i][j] = uinf;
+                    u[1][i][j] = vinf;
+                    u[2][i][j] = 0.0;
 
-                uxi[idx_2d] = 0;
-                uet[idx_2d] = 0;
-                p[idx_2d] = 0;
-                up[up0_base] = uinf;
-                up[up1_base] = vinf;
-                pcor[idx_2d] = 0;
-                si[idx_2d] = 0;
-                
-                idx_2d += STRIDE_I;
-                u0_base += STRIDE_I;
-                u1_base += STRIDE_I;
-                u2_base += STRIDE_I;
-                up0_base += STRIDE_I;
-                up1_base += STRIDE_I;
+                    uxi[i][j] = 0;
+                    uet[i][j] = 0;
+                    p[i][j] = 0;
+                    up[0][i][j] = uinf;
+                    up[1][i][j] = vinf;
+                    pcor[i][j] = 0;
+                    si[i][j] = 0;
                 }
             }
         } else {
-            // Binary read unchanged
-            ifstream restart_file("spa100.dat", ios::binary);
+             ifstream restart_file("spa100.dat", ios::binary);
             if (!restart_file) {
                 cerr << "Error opening restart file" << endl;
                 return;
@@ -652,10 +660,39 @@ public:
             restart_file.read(reinterpret_cast<char*>(&loop), sizeof(loop));
             restart_file.read(reinterpret_cast<char*>(&time), sizeof(time));
             restart_file.read(reinterpret_cast<char*>(&dmax), sizeof(dmax));
-            restart_file.read(reinterpret_cast<char*>(x), 2 * np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(si), np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(u), 3 * np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(p), np1 * np2 * sizeof(double));
+            
+            // Read x array
+            for (int k = 0; k < 2; k++) {
+                for (int i = 0; i < n[0]; i++) {
+                    for (int j = 0; j < n[1]; j++) {
+                        restart_file.read(reinterpret_cast<char*>(&x[k][i][j]), sizeof(double));
+                    }
+                }
+            }
+            
+            // Read si array
+            for (int i = 0; i < n[0]; i++) {
+                for (int j = 0; j < n[1]; j++) {
+                    restart_file.read(reinterpret_cast<char*>(&si[i][j]), sizeof(double));
+                }
+            }
+            
+            // Read u array
+            for (int k = 0; k < 3; k++) {
+                for (int i = 0; i < n[0]; i++) {
+                    for (int j = 0; j < n[1]; j++) {
+                        restart_file.read(reinterpret_cast<char*>(&u[k][i][j]), sizeof(double));
+                    }
+                }
+            }
+            
+            // Read p array
+            for (int i = 0; i < n[0]; i++) {
+                for (int j = 0; j < n[1]; j++) {
+                    restart_file.read(reinterpret_cast<char*>(&p[i][j]), sizeof(double));
+                }
+            }
+            
             restart_file.close();
         }
 
@@ -680,25 +717,21 @@ public:
         //c---------solid-fluid boundary
         // cout << "Applying boundary conditions (solid-fluid boundary)..." << endl;
         j = 0;
-        for(int k=0; k<2; k++){
-            int uk_base = k * STRIDE_K + j;
-            int xother_base = (1-k) * STRIDE_K + j;  // x[1] when k=0, x[0] when k=1
-            
+        for(int k=0;k<2;k++){
             for(int i=0; i<n[0]; i++){
                 if(k == 0){
-                    u[uk_base] = -speed_amp * x[STRIDE_K + uk_base];  // x[1][i][j]
-                } else {
-                    u[uk_base] = speed_amp * x[uk_base - STRIDE_K];   // x[0][i][j]
+                    u[k][i][j] = -speed_amp*x[1][i][j]; 
                 }
-                up[uk_base] = u[uk_base];
-                uk_base += STRIDE_I;
+                else{
+                    u[k][i][j] = speed_amp*x[0][i][j]; 
+                }
+                up[k][i][j] = u[k][i][j];
             }
         }
 
         j = 0;
-        int base = 2*STRIDE_K + j;
-        for(int i=0; i<n[0]; i++, base += STRIDE_I){
-            u[base] = 1.0;
+        for(int i=0;i<n[0];i++){
+            u[2][i][j] = 1.0;
         }
         
         // ----------------------------------------------------
@@ -706,363 +739,333 @@ public:
         // ----------------------------------------------------
         // cout << "Setting boundary conditions at infinity..." << endl;
         j = n[1]-1;
-        int row_base_j = j;  // Base for current row in 2D arrays
-        int u0_base = j;     // u[0][i][j]
-        int u1_base = STRIDE_K + j;  // u[1][i][j]
-        int u2_base = 2*STRIDE_K + j; // u[2][i][j]
-        int jnn = j-1;
-        int u0_base_jnn = jnn;  // u[0][i][jnn]
-        int u1_base_jnn = STRIDE_K + jnn;
-        int u2_base_jnn = 2*STRIDE_K + jnn;
-
-        for(int i=0; i<n[0]-1; i++){
-            vnn = u[u0_base]*xnox[i] + u[u1_base]*xnoy[i];
-            
+        for(int i=0;i<n[0]-1;i++){
+            vnn = u[0][i][j]*xnox[i] + u[1][i][j]*xnoy[i];
+            // inflow dirichlet conditions
             if(vnn >= 0){
-                // inflow dirichlet conditions
-                u[u0_base] = uinf;
-                u[u1_base] = vinf;
-                u[u2_base] = 0.0;
-                up[u0_base] = uinf;
-                up[u1_base] = vinf;
+                u[0][i][j] = uinf;
+                u[1][i][j] = vinf;
+                u[2][i][j] = 0.0;
+                up[0][i][j] = u[0][i][j];
+                up[1][i][j] = u[1][i][j];
             }
+            // Neuman condition
             else{
-                // Neuman condition
-                u[u0_base] = u[u0_base_jnn];
-                u[u1_base] = u[u1_base_jnn];
-                u[u2_base] = u[u2_base_jnn];
-                
+                inn = i-1;
+                ipp = i+1;
+                if(i==0) 
+                    inn = n[0]-1;
+                jnn = j-1;
+                u[0][i][j] = u[0][i][jnn];         
+                u[1][i][j] = u[1][i][jnn];         
+                u[2][i][j] = u[2][i][jnn];   
+
                 if(i==0){
-                    int last_idx = (n[0]-1) * STRIDE_I + j;
-                    u[last_idx] = u[u0_base];  // u[0][n[0]-1][j]
-                    u[last_idx + STRIDE_K] = u[u1_base];  // u[1][n[0]-1][j]
-                    u[last_idx + 2*STRIDE_K] = u[u2_base]; // u[2][n[0]-1][j]
-                }
+                    u[0][n[0]-1][j] = u[0][i][j];  
+                    u[1][n[0]-1][j] = u[1][i][j];         
+                    u[2][n[0]-1][j] = u[2][i][j]; 
+                }    
             }
-
-                    // Increment all pointers for next i
-            u0_base += STRIDE_I;
-            u1_base += STRIDE_I;
-            u2_base += STRIDE_I;
-            u0_base_jnn += STRIDE_I;
-            u1_base_jnn += STRIDE_I;
-            u2_base_jnn += STRIDE_I;
-
         }
 
         // forming coeff matrix for velocity
-        for(int i=0; i<n[0]-1; i++){
-            // Pre-calculate row base for this i
-            int row_base = i * STRIDE_I + 1;  // Start at j=1
-            int row_last = (n[0]-1) * STRIDE_I + 1;  // For periodic BC copy
-            
-            // Determine neighbor row indices
-            int inn = (i == 0) ? n[0]-2 : i-1;
-            int ipp = i+1;
-            
-            for(int j=1; j<n[1]-1; j++, row_base++, row_last++){
-                // idx is just row_base (no calculation!)
-                
-                if(j==1 || j==n[1]-2){
-                    // Second order scheme
-                    aue[row_base] = -dt*(alph[row_base]/(dxi[0]*dxi[0])+p1[row_base]/(2.0*dxi[0]))/Re;
-                    auw[row_base] = -dt*(alph[row_base]/(dxi[0]*dxi[0])-p1[row_base]/(2.0*dxi[0]))/Re;
-                    aun[row_base] = -dt*(gamma[row_base]/(dxi[1]*dxi[1])+q1[row_base]/(2.0*dxi[1]))/Re;
-                    aus[row_base] = -dt*(gamma[row_base]/(dxi[1]*dxi[1])-q1[row_base]/(2.0*dxi[1]))/Re;
-
-                    aune[row_base] = dt*beta[row_base]/(2.0*dxi[0]*dxi[1]*Re);
-                    ausw[row_base] = aune[row_base];
-                    aunw[row_base] = -dt*beta[row_base]/(2.0*dxi[0]*dxi[1]*Re);
-                    ause[row_base] = aunw[row_base];
-                    aup[row_base] = 1+dt*2.0*(alph[row_base]/(dxi[0]*dxi[0])+gamma[row_base]/(dxi[1]*dxi[1]))/Re;
-
-                    // Temperature coefficients
-                    ate[row_base] = -dt*(alph[row_base]/(dxi[0]*dxi[0])+p1[row_base]/(2.0*dxi[0]))/(Re*Pr);
-                    atw[row_base] = -dt*(alph[row_base]/(dxi[0]*dxi[0])-p1[row_base]/(2.0*dxi[0]))/(Re*Pr);
-                    atn[row_base] = -dt*(gamma[row_base]/(dxi[1]*dxi[1])+q1[row_base]/(2.0*dxi[1]))/(Re*Pr);
-                    ats[row_base] = -dt*(gamma[row_base]/(dxi[1]*dxi[1])-q1[row_base]/(2.0*dxi[1]))/(Re*Pr);
-
-                    atne[row_base] = dt*(beta[row_base]/(2.0*dxi[0]*dxi[1]))/(Re*Pr);
-                    atsw[row_base] = atne[row_base];
-                    atnw[row_base] = -dt*(beta[row_base]/(2.0*dxi[0]*dxi[1]))/(Re*Pr);
-                    atse[row_base] = atnw[row_base];
-                    atp[row_base] = 1+dt*2.0*(alph[row_base]/(dxi[0]*dxi[0])+gamma[row_base]/(dxi[1]*dxi[1]))/(Re*Pr);
+        // cout << "Forming coefficient matrix for velocity..." << endl;
+        for(int i=0;i<n[0]-1;i++){
+            for(int j=1;j<n[1]-1;j++){
+                if(i==0){
+                    inn = n[0]-2;
+                    ipp = i+1;
                 }
                 else{
-                    // Fourth order scheme
-                    aue[row_base]=(-dt)*((4.0*alph[row_base])/(3.0*dxi[0]*dxi[0])+(2.0*p1[row_base])/(3.0*dxi[0]))/Re;
-                    auw[row_base]=(-dt)*((4.0*alph[row_base])/(3.0*dxi[0]*dxi[0])-(2.0*p1[row_base])/(3.0*dxi[0]))/Re;
-                    aun[row_base]=(-dt)*((4.0*gamma[row_base])/(3.0*dxi[1]*dxi[1])+(2.0*q1[row_base])/(3.0*dxi[1]))/Re;
-                    aus[row_base]=(-dt)*((4.0*gamma[row_base])/(3.0*dxi[1]*dxi[1])-(2.0*q1[row_base])/(3.0*dxi[1]))/Re;
+                    inn = i-1;
+                    ipp = i+1;
+                }
+                jpp = j+1;
+                jnn = j-1;
 
-                    aune[row_base]=(-dt)*(-8.0*beta[row_base]/(9.0*dxi[0]*dxi[1]))/Re;
-                    aunw[row_base]=(-dt)*(8.0*beta[row_base]/(9.0*dxi[0]*dxi[1]))/Re;
-                    ause[row_base]=aunw[row_base];
-                    ausw[row_base]=aune[row_base];
+                if(j==1 || j==n[1]-2){
+                    aue[i][j] = -dt*(alph[i][j]/(dxi[0]*dxi[0])+p1[i][j]/(2.0*dxi[0]))/Re;
+                    auw[i][j] = -dt*(alph[i][j]/(dxi[0]*dxi[0])-p1[i][j]/(2.0*dxi[0]))/Re;
+                    aun[i][j] = -dt*(gamma[i][j]/(dxi[1]*dxi[1])+q1[i][j]/(2.0*dxi[1]))/Re;
+                    aus[i][j] = -dt*(gamma[i][j]/(dxi[1]*dxi[1])-q1[i][j]/(2.0*dxi[1]))/Re;
 
-                    aunn[row_base]=(-dt)*(-gamma[row_base]/(12.0*dxi[1]*dxi[1])-q1[row_base]/(12.0*dxi[1]))/Re;
-                    auss[row_base]=(-dt)*(-gamma[row_base]/(12.0*dxi[1]*dxi[1])+q1[row_base]/(12.0*dxi[1]))/Re;
-                    auee[row_base]=(-dt)*(-alph[row_base]/(12.0*dxi[0]*dxi[0])-p1[row_base]/(12.0*dxi[0]))/Re;
-                    auww[row_base]=(-dt)*(-alph[row_base]/(12.0*dxi[0]*dxi[0])+p1[row_base]/(12.0*dxi[0]))/Re;
+                    aune[i][j] = dt*beta[i][j]/(2.0*dxi[0]*dxi[1]*Re);
+                    ausw[i][j] = aune[i][j];
+                    aunw[i][j] = -dt*beta[i][j]/(2.0*dxi[0]*dxi[1]*Re);
+                    ause[i][j] = aunw[i][j];
+                    aup[i][j] = 1+dt*2.0*(alph[i][j]/(dxi[0]*dxi[0])+gamma[i][j]/(dxi[1]*dxi[1]))/Re;
 
-                    aunnee[row_base]=(-dt)*(-beta[row_base]/(72.0*dxi[0]*dxi[1]))/Re;
-                    aunnww[row_base]=(-dt)*(beta[row_base]/(72.0*dxi[0]*dxi[1]))/Re;
-                    aussee[row_base]=aunnww[row_base];
-                    aussww[row_base]=aunnee[row_base];
+                    // coeff matrix for temperature
+                    ate[i][j] = -dt*(alph[i][j]/(dxi[0]*dxi[0])+p1[i][j]/(2.0*dxi[0]))/(Re*Pr);
+                    atw[i][j] = -dt*(alph[i][j]/(dxi[0]*dxi[0])-p1[i][j]/(2.0*dxi[0]))/(Re*Pr);
+                    atn[i][j] = -dt*(gamma[i][j]/(dxi[1]*dxi[1])+q1[i][j]/(2.0*dxi[1]))/(Re*Pr);
+                    ats[i][j] = -dt*(gamma[i][j]/(dxi[1]*dxi[1])-q1[i][j]/(2.0*dxi[1]))/(Re*Pr);
 
-                    aunne[row_base]=(-dt)*(beta[row_base]/(9.0*dxi[0]*dxi[1]))/Re;
-                    aunnw[row_base]=(-dt)*(-beta[row_base]/(9.0*dxi[0]*dxi[1]))/Re;
-                    ausse[row_base]=aunnw[row_base];
-                    aussw[row_base]=aunne[row_base];
+                    atne[i][j] = dt*(beta[i][j]/(2.0*dxi[0]*dxi[1]))/(Re*Pr);
+                    atsw[i][j] = atne[i][j];
+                    atnw[i][j] = -dt*(beta[i][j]/(2.0*dxi[0]*dxi[1]))/(Re*Pr);
+                    atse[i][j] = atnw[i][j];
+                    atp[i][j] = 1+dt*2.0*(alph[i][j]/(dxi[0]*dxi[0])+gamma[i][j]/(dxi[1]*dxi[1]))/(Re*Pr);
+                }
+                else{
+                    // Fourth Order Coff Matrix for Velocity 
+                    aue[i][j]=(-dt)*((4.0*alph[i][j])/(3.0*dxi[0]*dxi[0])+(2.0*p1[i][j])/(3.0*dxi[0]))/Re;
+                    auw[i][j]=(-dt)*((4.0*alph[i][j])/(3.0*dxi[0]*dxi[0])-(2.0*p1[i][j])/(3.0*dxi[0]))/Re;
+                    aun[i][j]=(-dt)*((4.0*gamma[i][j])/(3.0*dxi[1]*dxi[1])+(2.0*q1[i][j])/(3.0*dxi[1]))/Re;
+                    aus[i][j]=(-dt)*((4.0*gamma[i][j])/(3.0*dxi[1]*dxi[1])-(2.0*q1[i][j])/(3.0*dxi[1]))/Re;
+                    
+                    aune[i][j]=(-dt)*(-8.0*beta[i][j]/(9.0*dxi[0]*dxi[1]))/Re;
+                    aunw[i][j]=(-dt)*(8.0*beta[i][j]/(9.0*dxi[0]*dxi[1]))/Re;
+                    ause[i][j]=aunw[i][j];
+                    ausw[i][j]=aune[i][j];
+                    
+                    aunn[i][j]=(-dt)*(-gamma[i][j]/(12.0*dxi[1]*dxi[1])-q1[i][j]/(12.0*dxi[1]))/Re;
+                    auss[i][j]=(-dt)*(-gamma[i][j]/(12.0*dxi[1]*dxi[1])+q1[i][j]/(12.0*dxi[1]))/Re;
+                    auee[i][j]=(-dt)*(-alph[i][j]/(12.0*dxi[0]*dxi[0])-p1[i][j]/(12.0*dxi[0]))/Re;
+                    auww[i][j]=(-dt)*(-alph[i][j]/(12.0*dxi[0]*dxi[0])+p1[i][j]/(12.0*dxi[0]))/Re;
+                    
+                    aunnee[i][j]=(-dt)*(-beta[i][j]/(72.0*dxi[0]*dxi[1]))/Re;
+                    aunnww[i][j]=(-dt)*(beta[i][j]/(72.0*dxi[0]*dxi[1]))/Re;
+                    aussee[i][j]=aunnww[i][j];
+                    aussww[i][j]=aunnee[i][j];
+                    
+                    aunne[i][j]=(-dt)*(beta[i][j]/(9.0*dxi[0]*dxi[1]))/Re;
+                    aunnw[i][j]=(-dt)*(-beta[i][j]/(9.0*dxi[0]*dxi[1]))/Re;
+                    ausse[i][j]=aunnw[i][j];
+                    aussw[i][j]=aunne[i][j];
 
-                    aunee[row_base]=aunne[row_base];
-                    aunww[row_base]=aunnw[row_base];
-                    ausee[row_base]=aunnw[row_base];
-                    ausww[row_base]=aunne[row_base];
+                    aunee[i][j]=aunne[i][j];
+                    aunww[i][j]=aunnw[i][j];
+                    ausee[i][j]=aunnw[i][j];
+                    ausww[i][j]=aunne[i][j];
 
-                    aup[row_base]=1+dt*(5.0*alph[row_base]/(2.0*dxi[0]*dxi[0])+5.0*gamma[row_base]/(2.0*dxi[1]*dxi[1]))/Re;
+                    aup[i][j]=1+dt*(5.0*alph[i][j]/(2.0*dxi[0]*dxi[0])+5.0*gamma[i][j]/(2.0*dxi[1]*dxi[1]))/Re;
 
-                    // Temperature (just divide velocity coeffs by Pr)
-                    ate[row_base]=aue[row_base]/Pr;
-                    atw[row_base]=auw[row_base]/Pr;
-                    atn[row_base]=aun[row_base]/Pr;
-                    ats[row_base]=aus[row_base]/Pr;
-                    atne[row_base]=aune[row_base]/Pr;
-                    atnw[row_base]=aunw[row_base]/Pr;
-                    atse[row_base]=ause[row_base]/Pr;
-                    atsw[row_base]=ausw[row_base]/Pr;
-                    atnn[row_base]=aunn[row_base]/Pr;
-                    atss[row_base]=auss[row_base]/Pr;
-                    atee[row_base]=auee[row_base]/Pr;
-                    atww[row_base]=auww[row_base]/Pr;
-                    atnnee[row_base]=aunnee[row_base]/Pr;
-                    atnnww[row_base]=aunnww[row_base]/Pr;
-                    atssee[row_base]=aussee[row_base]/Pr;
-                    atssww[row_base]=aussww[row_base]/Pr;
-                    atnne[row_base]=aunne[row_base]/Pr;
-                    atnnw[row_base]=aunnw[row_base]/Pr;
-                    atsse[row_base]=ausse[row_base]/Pr;
-                    atssw[row_base]=aussw[row_base]/Pr;
-                    atnee[row_base]=aunee[row_base]/Pr;
-                    atnww[row_base]=aunww[row_base]/Pr;
-                    atsee[row_base]=ausee[row_base]/Pr;
-                    atsww[row_base]=ausww[row_base]/Pr;
-                    atp[row_base]=1+dt*(5.0*alph[row_base]/(2.0*dxi[0]*dxi[0])+5.0*gamma[row_base]/(2.0*dxi[1]*dxi[1]))/(Re*Pr);
+                    // Fourth Order Coff Matrix for Temperature
+                    ate[i][j]=aue[i][j]/Pr;
+                    atw[i][j]=auw[i][j]/Pr;
+                    atn[i][j]=aun[i][j]/Pr;
+                    ats[i][j]=aus[i][j]/Pr;
+                    atne[i][j]=aune[i][j]/Pr;
+                    atnw[i][j]=aunw[i][j]/Pr;
+                    atse[i][j]=ause[i][j]/Pr;
+                    atsw[i][j]=ausw[i][j]/Pr;
+                    atnn[i][j]=aunn[i][j]/Pr;
+                    atss[i][j]=auss[i][j]/Pr;
+                    atee[i][j]=auee[i][j]/Pr;
+                    atww[i][j]=auww[i][j]/Pr;
+                    atnnee[i][j]=aunnee[i][j]/Pr;
+                    atnnww[i][j]=aunnww[i][j]/Pr;
+                    atssee[i][j]=aussee[i][j]/Pr;
+                    atssww[i][j]=aussww[i][j]/Pr;
+                    atnne[i][j]=aunne[i][j]/Pr;
+                    atnnw[i][j]=aunnw[i][j]/Pr;
+                    atsse[i][j]=ausse[i][j]/Pr;
+                    atssw[i][j]=aussw[i][j]/Pr;
+                    atnee[i][j]=aunee[i][j]/Pr;
+                    atnww[i][j]=aunww[i][j]/Pr;
+                    atsee[i][j]=ausee[i][j]/Pr;
+                    atsww[i][j]=ausww[i][j]/Pr;
+                    atp[i][j]=1+dt*(5.0*alph[i][j]/(2.0*dxi[0]*dxi[0])+5.0*gamma[i][j]/(2.0*dxi[1]*dxi[1]))/(Re*Pr);
                 }
 
-                // Boundary coefficient storage
                 if(j==1){
-                    bus[i]=aus[row_base];
-                    buse[i]=ause[row_base];
-                    busw[i]=ausw[row_base];
-                    bts[i]=ats[row_base];
-                    btse[i]=atse[row_base];
-                    btsw[i]=atsw[row_base];
+                    bus[i]=aus[i][j];
+                    buse[i]=ause[i][j];
+                    busw[i]=ausw[i][j];
+                    bts[i]=ats[i][j];
+                    btse[i]=atse[i][j];
+                    btsw[i]=atsw[i][j];
 
-                    aus[row_base]=0;
-                    ause[row_base]=0;
-                    ausw[row_base]=0;
-                    ats[row_base]=0;
-                    atse[row_base]=0;
-                    atsw[row_base]=0;
+                    aus[i][j]=0;
+                    ause[i][j]=0;
+                    ausw[i][j]=0;
+                    ats[i][j]=0;
+                    atse[i][j]=0;
+                    atsw[i][j]=0;
+
                 }
                 
                 if(j==n[1]-2){
-                    bun[i]=aun[row_base];
-                    bune[i]=aune[row_base];
-                    bunw[i]=aunw[row_base];
-                    btn[i]=atn[row_base];
-                    btne[i]=atne[row_base];
-                    btnw[i]=atnw[row_base];
+                    bun[i]=aun[i][j];
+                    bune[i]=aune[i][j];
+                    bunw[i]=aunw[i][j];
+                    btn[i]=atn[i][j];
+                    btne[i]=atne[i][j];
+                    btnw[i]=atnw[i][j];
 
-                    aun[row_base]=0;
-                    aune[row_base]=0;
-                    aunw[row_base]=0;
-                    atn[row_base]=0;
-                    atne[row_base]=0;
-                    atnw[row_base]=0;
+                    aun[i][j]=0;
+                    aune[i][j]=0;
+                    aunw[i][j]=0;
+                    atn[i][j]=0;
+                    atne[i][j]=0;
+                    atnw[i][j]=0;
                 }
-
-                // Periodic BC - copy to last row
+                
                 if(i==0){
-                    aue[row_last]=aue[row_base];
-                    auw[row_last]=auw[row_base];
-                    aun[row_last]=aun[row_base];
-                    aus[row_last]=aus[row_base];
-                    aune[row_last]=aune[row_base];
-                    ause[row_last]=ause[row_base];
-                    ausw[row_last]=ausw[row_base];
-                    aunw[row_last]=aunw[row_base];
-                    aup[row_last]=aup[row_base];
+                    aue[n[0]-1][j]=aue[i][j];
+                    auw[n[0]-1][j]=auw[i][j];
+                    aun[n[0]-1][j]=aun[i][j];
+                    aus[n[0]-1][j]=aus[i][j];
+                    aune[n[0]-1][j]=aune[i][j];
+                    ause[n[0]-1][j]=ause[i][j];
+                    ausw[n[0]-1][j]=ausw[i][j];
+                    aunw[n[0]-1][j]=aunw[i][j];
+                    aup[n[0]-1][j]=aup[i][j];
 
-                    aunn[row_last]=aunn[row_base];
-                    aunnee[row_last]=aunnee[row_base];
-                    aunnww[row_last]=aunnww[row_base];
-                    aunne[row_last]=aunne[row_base];
-                    aunnw[row_last]=aunnw[row_base];
-                    aunee[row_last]=aunee[row_base];
-                    aunww[row_last]=aunww[row_base];
-                    auss[row_last]=auss[row_base];
-                    aussee[row_last]=aussee[row_base];
-                    aussww[row_last]=aussww[row_base];
-                    ausse[row_last]=ausse[row_base];
-                    aussw[row_last]=aussw[row_base];
-                    ausee[row_last]=ausee[row_base];
-                    ausww[row_last]=ausww[row_base];
-                    auee[row_last]=auee[row_base];
-                    auww[row_last]=auww[row_base];
+                    aunn[n[0]-1][j]=aunn[i][j];
+                    aunnee[n[0]-1][j]=aunnee[i][j];
+                    aunnww[n[0]-1][j]=aunnww[i][j];
+                    aunne[n[0]-1][j]=aunne[i][j];
+                    aunnw[n[0]-1][j]=aunnw[i][j];
+                    aunee[n[0]-1][j]=aunee[i][j];
+                    aunww[n[0]-1][j]=aunww[i][j];
+                    auss[n[0]-1][j]=auss[i][j];
+                    aussee[n[0]-1][j]=aussee[i][j];
+                    aussww[n[0]-1][j]=aussww[i][j];
+                    ausse[n[0]-1][j]=ausse[i][j];
+                    aussw[n[0]-1][j]=aussw[i][j];
+                    ausee[n[0]-1][j]=ausee[i][j];
+                    ausww[n[0]-1][j]=ausww[i][j];
+                    auee[n[0]-1][j]=auee[i][j];
+                    auww[n[0]-1][j]=auww[i][j];
 
-                    ate[row_last]=ate[row_base];
-                    atw[row_last]=atw[row_base];
-                    atn[row_last]=atn[row_base];
-                    ats[row_last]=ats[row_base];
-                    atne[row_last]=atne[row_base];
-                    atse[row_last]=atse[row_base];
-                    atsw[row_last]=atsw[row_base];
-                    atnw[row_last]=atnw[row_base];
-                    atp[row_last]=atp[row_base];
+                    ate[n[0]-1][j]=ate[i][j];
+                    atw[n[0]-1][j]=atw[i][j];
+                    atn[n[0]-1][j]=atn[i][j];
+                    ats[n[0]-1][j]=ats[i][j];
+                    atne[n[0]-1][j]=atne[i][j];
+                    atse[n[0]-1][j]=atse[i][j];
+                    atsw[n[0]-1][j]=atsw[i][j];
+                    atnw[n[0]-1][j]=atnw[i][j];
+                    atp[n[0]-1][j]=atp[i][j];
 
-                    atnn[row_last]=atnn[row_base];
-                    atnnee[row_last]=atnnee[row_base];
-                    atnnww[row_last]=atnnww[row_base];
-                    atnne[row_last]=atnne[row_base];
-                    atnnw[row_last]=atnnw[row_base];
-                    atnee[row_last]=atnee[row_base];
-                    atnww[row_last]=atnww[row_base];
-                    atss[row_last]=atss[row_base];
-                    atssee[row_last]=atssee[row_base];
-                    atssww[row_last]=atssww[row_base];
-                    atsse[row_last]=atsse[row_base];
-                    atssw[row_last]=atssw[row_base];
-                    atsee[row_last]=atsee[row_base];
-                    atsww[row_last]=atsww[row_base];
-                    atee[row_last]=atee[row_base];
-                    atww[row_last]=atww[row_base];
+                    atnn[n[0]-1][j]=atnn[i][j];
+                    atnnee[n[0]-1][j]=atnnee[i][j];
+                    atnnww[n[0]-1][j]=atnnww[i][j];
+                    atnne[n[0]-1][j]=atnne[i][j];
+                    atnnw[n[0]-1][j]=atnnw[i][j];
+                    atnee[n[0]-1][j]=atnee[i][j];
+                    atnww[n[0]-1][j]=atnww[i][j];
+                    atss[n[0]-1][j]=atss[i][j];
+                    atssee[n[0]-1][j]=atssee[i][j];
+                    atssww[n[0]-1][j]=atssww[i][j];
+                    atsse[n[0]-1][j]=atsse[i][j];
+                    atssw[n[0]-1][j]=atssw[i][j];
+                    atsee[n[0]-1][j]=atsee[i][j];
+                    atsww[n[0]-1][j]=atsww[i][j];
+                    atee[n[0]-1][j]=atee[i][j];
+                    atww[n[0]-1][j]=atww[i][j];
                 }
             }
         }
  
-        // Forming pressure matrix
+        // Forming a matrix for Pressure
+        // cout << "Forming matrix for pressure..." << endl;
         for(int i=0; i<n[0]-1; i++) {
-            int row_base = i * STRIDE_I + 1;  // Start at j=1
-            
-            // Neighbor rows
-            int inn = (i == 0) ? n[0]-2 : i-1;
-            int ipp = i+1;
-            int row_inn = inn * STRIDE_I + 1;
-            int row_ipp = ipp * STRIDE_I + 1;
-            int row_last = (n[0]-1) * STRIDE_I + 1;
-            
             for(int j=1; j<n[1]-1; j++) {
-                // All indices are just increments - no multiplication!
-                double dxix_ij = dxix[row_base];
-                double dxiy_ij = dxiy[row_base];
-                double dex_ij = dex[row_base];
-                double dey_ij = dey[row_base];
+                if(i == 0) {
+                    inn = n[0]-2;
+                    ipp = i+1;
+                }            
+                else {
+                    inn = i-1;
+                    ipp = i+1;
+                }      
 
-                // Neighbors: just +/- 1 or +/- STRIDE_I
-                double dxix_e = dxix[row_ipp];
-                double dxix_w = dxix[row_inn];
-                double dxix_n = dxix[row_base + 1];
-                double dxix_s = dxix[row_base - 1];
-                
-                double dxiy_e = dxiy[row_ipp];
-                double dxiy_w = dxiy[row_inn];
-                double dxiy_n = dxiy[row_base + 1];
-                double dxiy_s = dxiy[row_base - 1];
-                
-                double dex_e = dex[row_ipp];
-                double dex_w = dex[row_inn];
-                double dex_n = dex[row_base + 1];
-                double dex_s = dex[row_base - 1];
-                
-                double dey_e = dey[row_ipp];
-                double dey_w = dey[row_inn];
-                double dey_n = dey[row_base + 1];
-                double dey_s = dey[row_base - 1];
+                jpp = j+1;
+                jnn = j-1; 
 
-                // EAST COMPONENT
-                ae[row_base] = (dxix_ij/(2.0*dxi[0]*dxi[0]))*(dxix_ij + dxix_e)
-                            + (dex_ij/(8.0*dxi[0]*dxi[1]))*(dxix_n - dxix_s)
-                            + (dxiy_ij/(2.0*dxi[0]*dxi[0]))*(dxiy_ij + dxiy_e)
-                            + (dey_ij/(8.0*dxi[0]*dxi[1]))*(dxiy_n - dxiy_s);
+                //EAST COMPONENT(I+1,J)
+                double aae = (dxix[i][j]/(2.0*dxi[0]*dxi[0]))*(dxix[i][j]+dxix[ipp][j]);
+                double bbe = (dex[i][j]/(8.0*dxi[0]*dxi[1]))*(dxix[i][jpp]-dxix[i][jnn]);
+                double cce = (dxiy[i][j]/(2.0*dxi[0]*dxi[0]))*(dxiy[i][j]+dxiy[ipp][j]);
+                double dde = (dey[i][j]/(8.0*dxi[0]*dxi[1]))*(dxiy[i][jpp]-dxiy[i][jnn]);
 
-                // WEST COMPONENT
-                aw[row_base] = (dxix_ij/(2.0*dxi[0]*dxi[0]))*(dxix_ij + dxix_w)
-                            + (dex_ij/(8.0*dxi[0]*dxi[1]))*(dxix_s - dxix_n)
-                            + (dxiy_ij/(2.0*dxi[0]*dxi[0]))*(dxiy_ij + dxiy_w)
-                            + (dey_ij/(8.0*dxi[0]*dxi[1]))*(dxiy_s - dxiy_n);
+                ae[i][j] = aae+bbe+cce+dde;
 
-                // NORTH COMPONENT
-                an[row_base] = (dxix_ij/(8.0*dxi[0]*dxi[1]))*(dex_e - dex_w)
-                            + (dex_ij/(2.0*dxi[1]*dxi[1]))*(dex_ij + dex_n)
-                            + (dxiy_ij/(8.0*dxi[0]*dxi[1]))*(dey_e - dey_w)
-                            + (dey_ij/(2.0*dxi[1]*dxi[1]))*(dey_ij + dey_n);
+                // WEST COMPONENT(I-1,J)
+                double aaw = (dxix[i][j]/(2.0*dxi[0]*dxi[0])) * (dxix[i][j] + dxix[inn][j]);
+                double bbw = (dex[i][j]/(8.0*dxi[0]*dxi[1])) * (dxix[i][jnn] - dxix[i][jpp]);
+                double ccw = (dxiy[i][j]/(2.0*dxi[0]*dxi[0])) * (dxiy[i][j] + dxiy[inn][j]);
+                double ddw = (dey[i][j]/(8.0*dxi[0]*dxi[1])) * (dxiy[i][jnn] - dxiy[i][jpp]);
 
-                // SOUTH COMPONENT
-                as[row_base] = (dxix_ij/(8.0*dxi[0]*dxi[1]))*(dex_w - dex_e)
-                            + (dex_ij/(2.0*dxi[1]*dxi[1]))*(dex_ij + dex_s)
-                            + (dxiy_ij/(8.0*dxi[0]*dxi[1]))*(dey_w - dey_e)
-                            + (dey_ij/(2.0*dxi[1]*dxi[1]))*(dey_ij + dey_s);
+                aw[i][j] = aaw + bbw + ccw + ddw;
 
-                // NORTH EAST
-                ane[row_base] = (dxix_ij/(8.0*dxi[0]*dxi[1]))*(dex_ij + dex_e)
-                            + (dex_ij/(8.0*dxi[0]*dxi[1]))*(dxix_ij + dxix_n)
-                            + (dxiy_ij/(8.0*dxi[0]*dxi[1]))*(dey_ij + dey_e)
-                            + (dey_ij/(8.0*dxi[0]*dxi[1]))*(dxiy_ij + dxiy_n);
+                // NORTH COMPONENT(I,J+1)
+                double aan = (dxix[i][j]/(8.0*dxi[0]*dxi[1])) * (dex[ipp][j] - dex[inn][j]);
+                double bbn = (dex[i][j]/(2.0*dxi[1]*dxi[1])) * (dex[i][j] + dex[i][jpp]);
+                double ccn = (dxiy[i][j]/(8.0*dxi[0]*dxi[1])) * (dey[ipp][j] - dey[inn][j]);
+                double ddn = (dey[i][j]/(2.0*dxi[1]*dxi[1])) * (dey[i][j] + dey[i][jpp]);
 
-                // SOUTH WEST
-                asw[row_base] = (dxix_ij/(8.0*dxi[0]*dxi[1]))*(dex_ij + dex_w)
-                            + (dex_ij/(8.0*dxi[0]*dxi[1]))*(dxix_ij + dxix_s)
-                            + (dxiy_ij/(8.0*dxi[0]*dxi[1]))*(dey_ij + dey_w)
-                            + (dey_ij/(8.0*dxi[0]*dxi[1]))*(dxiy_ij + dxiy_s);
+                an[i][j] = aan + bbn + ccn + ddn;
 
-                // NORTH WEST
-                anw[row_base] = -(dxix_ij/(8.0*dxi[0]*dxi[1]))*(dex_ij + dex_w)
-                            - (dex_ij/(8.0*dxi[0]*dxi[1]))*(dxix_ij + dxix_n)
-                            - (dxiy_ij/(8.0*dxi[0]*dxi[1]))*(dey_ij + dey_w)
-                            - (dey_ij/(8.0*dxi[0]*dxi[1]))*(dxiy_ij + dxiy_n);
+                // SOUTH COMPONENT(I,J-1)
+                double aas = (dxix[i][j]/(8.0*dxi[0]*dxi[1])) * (dex[inn][j] - dex[ipp][j]);
+                double bbs = (dex[i][j]/(2.0*dxi[1]*dxi[1])) * (dex[i][j] + dex[i][jnn]);
+                double ccs = (dxiy[i][j]/(8.0*dxi[0]*dxi[1])) * (dey[inn][j] - dey[ipp][j]);
+                double dds = (dey[i][j]/(2.0*dxi[1]*dxi[1])) * (dey[i][j] + dey[i][jnn]);
 
-                // SOUTH EAST
-                ase[row_base] = -(dxix_ij/(8.0*dxi[0]*dxi[1]))*(dex_ij + dex_e)
-                            - (dex_ij/(8.0*dxi[0]*dxi[1]))*(dxix_ij + dxix_s)
-                            - (dxiy_ij/(8.0*dxi[0]*dxi[1]))*(dey_ij + dey_e)
-                            - (dey_ij/(8.0*dxi[0]*dxi[1]))*(dxiy_ij + dxiy_s);
+                as[i][j] = aas + bbs + ccs + dds;
 
-                // CENTER (P)
-                double pxi = 1.0/(2.0*dxi[0]*dxi[0]);
-                double pet = 1.0/(2.0*dxi[1]*dxi[1]);
-                ap[row_base] = pxi * (-dxix_ij * (2.0*dxix_ij + dxix_w + dxix_e))
-                            + pet * (-dex_ij * (2.0*dex_ij + dex_s + dex_n))
-                            + pxi * (-dxiy_ij * (2.0*dxiy_ij + dxiy_w + dxiy_e))
-                            + pet * (-dey_ij * (2.0*dey_ij + dey_s + dey_n));
+                // NORTH EAST COMPONENT(I+1,J+1)
+                double aane = (dxix[i][j]/(8.0*dxi[0]*dxi[1])) * (dex[i][j] + dex[ipp][j]);
+                double bbne = (dex[i][j]/(8.0*dxi[0]*dxi[1])) * (dxix[i][j] + dxix[i][jpp]);
+                double ccne = (dxiy[i][j]/(8.0*dxi[0]*dxi[1])) * (dey[i][j] + dey[ipp][j]);
+                double ddne = (dey[i][j]/(8.0*dxi[0]*dxi[1])) * (dxiy[i][j] + dxiy[i][jpp]);
+                ane[i][j] = aane + bbne + ccne + ddne;
 
-                // Periodic BC
+                // SOUTH WEST COMPONENT(I-1,J-1)
+                double aasw = (dxix[i][j]/(8.0*dxi[0]*dxi[1])) * (dex[i][j] + dex[inn][j]);
+                double bbsw = (dex[i][j]/(8.0*dxi[0]*dxi[1])) * (dxix[i][j] + dxix[i][jnn]);
+                double ccsw = (dxiy[i][j]/(8.0*dxi[0]*dxi[1])) * (dey[i][j] + dey[inn][j]);
+                double ddsw = (dey[i][j]/(8.0*dxi[0]*dxi[1])) * (dxiy[i][j] + dxiy[i][jnn]);
+                asw[i][j] = aasw + bbsw + ccsw + ddsw;
+
+                // NORTH WEST(I-1,J+1)
+                double aanw = -(dxix[i][j]/(8.0*dxi[0]*dxi[1])) * (dex[i][j] + dex[inn][j]);
+                double bbnw = -(dex[i][j]/(8.0*dxi[0]*dxi[1])) * (dxix[i][j] + dxix[i][jpp]);
+                double ccnw = -(dxiy[i][j]/(8.0*dxi[0]*dxi[1])) * (dey[i][j] + dey[inn][j]);
+                double ddnw = -(dey[i][j]/(8.0*dxi[0]*dxi[1])) * (dxiy[i][j] + dxiy[i][jpp]);
+                anw[i][j] = aanw + bbnw + ccnw + ddnw;
+
+                // SOUTH EAST COMPONENTS(I+1,J-1)
+                double aase = -(dxix[i][j]/(8.0*dxi[0]*dxi[1])) * (dex[i][j] + dex[ipp][j]);
+                double bbse = -(dex[i][j]/(8.0*dxi[0]*dxi[1])) * (dxix[i][j] + dxix[i][jnn]);
+                double ccse = -(dxiy[i][j]/(8.0*dxi[0]*dxi[1])) * (dey[i][j] + dey[ipp][j]);
+                double ddse = -(dey[i][j]/(8.0*dxi[0]*dxi[1])) * (dxiy[i][j] + dxiy[i][jnn]);
+                ase[i][j] = aase + bbse + ccse + ddse;
+
+                // node itself P
+                double pxi = 1.0/(2.*dxi[0]*dxi[0]);
+                double pet = 1.0/(2.*dxi[1]*dxi[1]);
+                double aap = -dxix[i][j] * (2.*dxix[i][j] + dxix[inn][j] + dxix[ipp][j]);
+                double bbp = -dex[i][j] * (2.*dex[i][j] + dex[i][jnn] + dex[i][jpp]);
+                double ccp = -dxiy[i][j] * (2.*dxiy[i][j] + dxiy[inn][j] + dxiy[ipp][j]);
+                double ddp = -dey[i][j] * (2.*dey[i][j] + dey[i][jnn] + dey[i][jpp]);
+
+                ap[i][j] = aap*pxi + bbp*pet + ccp*pxi + ddp*pet;
+
                 if (i == 0) {
-                    ae[row_last] = ae[row_base];
-                    aw[row_last] = aw[row_base];
-                    an[row_last] = an[row_base];
-                    as[row_last] = as[row_base];
-                    ane[row_last] = ane[row_base];
-                    ase[row_last] = ase[row_base];
-                    asw[row_last] = asw[row_base];
-                    anw[row_last] = anw[row_base];
-                    ap[row_last] = ap[row_base];
+                    ae[n[0]-1][j] = ae[i][j];
+                    aw[n[0]-1][j] = aw[i][j];
+                    an[n[0]-1][j] = an[i][j];
+                    as[n[0]-1][j] = as[i][j];
+                    ane[n[0]-1][j] = ane[i][j];
+                    ase[n[0]-1][j] = ase[i][j];
+                    asw[n[0]-1][j] = asw[i][j];
+                    anw[n[0]-1][j] = anw[i][j];
+                    ap[n[0]-1][j] = ap[i][j];
                 }
-                
-                // Increment all for next j
-                row_base++;
-                row_inn++;
-                row_ipp++;
-                row_last++;
             }
         }
 
         auto end = chrono::high_resolution_clock::now();
         auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-        cout << "Time taken in Constructor: " << duration.count() << " ms" << endl;
+        cout << "Time taken in Constructor: " << duration.count() << " ms\n" << endl;
 
     }
+
     // Destructor
     ~Solver() {
         deallocateArrays();
@@ -1076,297 +1079,192 @@ public:
         // cout << "Starting time loop..." << endl;
         
         auto start = chrono::high_resolution_clock::now();
-        
         // Outer loop
-        for(loop=0; loop<MAXSTEP; loop++){
-        time = time + dt;
-        
-        // ========================================
-        // Flow Field inside domain - OPTIMIZED
-        // U in xi and eta
-        // ========================================
-            for(int i=0; i<n[0]; i++){
-                int idx_base = i * STRIDE_I;
-                int u0_base = idx_base;
-                int u1_base = idx_base + STRIDE_K;
-                int u2_base = idx_base + 2*STRIDE_K;
-                
-                for(int j=0; j<n[1]; j++){
-                    uxi[idx_base] = dxix[idx_base]*u[u0_base] + dxiy[idx_base]*u[u1_base];
-                    uet[idx_base] = dex[idx_base]*u[u0_base] + dey[idx_base]*u[u1_base];
-                    uold[u2_base] = u[u2_base];
-                    
-                    idx_base++;
-                    u0_base++;
-                    u1_base++;
-                    u2_base++;
+        for(loop=0;loop<MAXSTEP;loop++){
+            time = time + dt;
+            // Flow Field inside domain
+            // U in xi and eta
+            // cout << "Calculating flow field inside domain (U in xi and eta)..." << endl;
+            for(int i=0;i<n[0];i++){
+                for(int j=0;j<n[1];j++){
+                    uxi[i][j] = dxix[i][j]*u[0][i][j]+dxiy[i][j]*u[1][i][j];
+                    uet[i][j] = dex[i][j]*u[0][i][j]+dey[i][j]*u[1][i][j];
+                    uold[2][i][j] = u[2][i][j];
                 }
             }
+            
             double dp_dxi, dp_de, dp_dx, dp_dy;
             // Convection term
             // k loop starts
             // cout << "Calculating convection term..." << endl;
             for(int i=0; i<n[0]-1; i++) {
-                // Pre-calculate ALL row bases for this i
-                int row_base = i * STRIDE_I + 1;  // Start at j=1
-                
-                // Neighbor rows for 2D arrays
-                int inn, ipp, inn2, ipp2;
-                if(i==0 || i==1 || i==n[0]-2) {
-                    if(i==0) {
-                        inn=n[0]-2;
-                        ipp=i+1;
-                        inn2=n[0]-3;
-                        ipp2=i+2;
-                    }
-                    else if(i==1) {
-                        inn=i-1;
-                        ipp=i+1;
-                        inn2=n[0]-2;
-                        ipp2=i+2;
-                    }
-                    else { // i==n[0]-2
+                for(int j=1; j<n[1]-1; j++) {
+                    if(i==0 || i==1 || i==n[0]-2) {
+                        if(i==0) {
+                            inn=n[0]-2; // changed inn from 1 to 2
+                            ipp=i+1;
+                            inn2=n[0]-3;
+                            ipp2=i+2;
+                        }
+
+                        if(i==1) {
+                            inn=i-1;
+                            ipp=i+1;
+                            inn2=n[0]-2;
+                            ipp2=i+2;
+                        }
+
+                        if(i==n[0]-2) {
+                            inn=i-1;
+                            ipp=i+1;
+                            inn2=i-2;
+                            ipp2=1;
+                        }
+                    } else {
                         inn=i-1;
                         ipp=i+1;
                         inn2=i-2;
-                        ipp2=1;
+                        ipp2=i+2;
                     }
-                } else {
-                    inn=i-1;
-                    ipp=i+1;
-                    inn2=i-2;
-                    ipp2=i+2;
-                }
 
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                int row_inn2 = inn2 * STRIDE_I + 1;
-                int row_ipp2 = ipp2 * STRIDE_I + 1;
-                int row_last = (n[0]-1) * STRIDE_I + 1;
-                
-                // 3D layer bases for u array
-                int u0_row = row_base;
-                int u1_row = row_base + STRIDE_K;
-                int u2_row = row_base + 2*STRIDE_K;
-                
-                // Neighbor 3D rows
-                int u0_inn = row_inn;
-                int u0_ipp = row_ipp;
-                int u0_inn2 = row_inn2;
-                int u0_ipp2 = row_ipp2;
-                
-                int u1_inn = row_inn + STRIDE_K;
-                int u1_ipp = row_ipp + STRIDE_K;
-                int u1_inn2 = row_inn2 + STRIDE_K;
-                int u1_ipp2 = row_ipp2 + STRIDE_K;
-                
-                int u2_inn = row_inn + 2*STRIDE_K;
-                int u2_ipp = row_ipp + 2*STRIDE_K;
-                int u2_inn2 = row_inn2 + 2*STRIDE_K;
-                int u2_ipp2 = row_ipp2 + 2*STRIDE_K;
+                    jpp=j+1;
+                    jnn=j-1;
+                    jpp2=j+2;
+                    jnn2=j-2;
 
-                for(int j=1; j<n[1]-1; j++) {
-                // ALL indices are just the current pointers - NO CALCULATION!
-                
-                double uxi_ij = uxi[row_base];
-                double uet_ij = uet[row_base];
-                double alph_ij = alph[row_base];
-                double gamma_ij = gamma[row_base];
-                
-                // j-direction offsets (column neighbors)
-                int jpp_offset = 1;
-                int jnn_offset = -1;
-                int jpp2_offset = 2;
-                int jnn2_offset = -2;
+                    for(int k=0;k<3;k++) {
+                        // convective term in xi direction
+                        double pec1, pec2;
+                        if(k<=1) {
+                                pec1 = uxi[i][j]*Re*dxi[0]/alph[i][j];
+                                pec2 = uet[i][j]*Re*dxi[1]/gamma[i][j];
+                            } else {
+                                pec1 = uxi[i][j]*Re*Pr*dxi[0]/alph[i][j];
+                                pec2 = uet[i][j]*Re*Pr*dxi[1]/gamma[i][j];
+                            }
 
-                // ========== K LOOP (3 components) ==========
-                for(int k=0; k<3; k++) {
-                    // Select the right layer base
-                    int uk_row = (k==0) ? u0_row : ((k==1) ? u1_row : u2_row);
-                    int uk_inn = (k==0) ? u0_inn : ((k==1) ? u1_inn : u2_inn);
-                    int uk_ipp = (k==0) ? u0_ipp : ((k==1) ? u1_ipp : u2_ipp);
-                    int uk_inn2 = (k==0) ? u0_inn2 : ((k==1) ? u1_inn2 : u2_inn2);
-                    int uk_ipp2 = (k==0) ? u0_ipp2 : ((k==1) ? u1_ipp2 : u2_ipp2);
-                    
-                    // Peclet numbers
-                    double pec1, pec2;
-                    if(k<=1) {
-                        pec1 = uxi_ij*Re*dxi[0]/alph_ij;
-                        pec2 = uet_ij*Re*dxi[1]/gamma_ij;
-                    } else {
-                        pec1 = uxi_ij*Re*Pr*dxi[0]/alph_ij;
-                        pec2 = uet_ij*Re*Pr*dxi[1]/gamma_ij;
-                    }
-                    //CONVECTIVE TERM -THIRD ORDER ASYMMETRIC UPWIND DIFFERENCING IN
-                    //CENTER AND CENTRAL AT BOUNDARY + HYBRID DIFFERENCING
-                    double du_xi;
-                    if(j >= 2 && j <= n[1]-3) {
-                        if(pec1 <= 2 && pec1 > -2) {
-                            // CENTRAL 4TH ORDER
-                            double xpp = 8.0*(u[uk_ipp] - u[uk_inn]);
-                            double xnn = u[uk_ipp2] - u[uk_inn2];
+                        //CONVECTIVE TERM -THIRD ORDER ASYMMETRIC UPWIND DIFFERENCING IN
+                        //CENTER AND CENTRAL AT BOUNDARY + HYBRID DIFFERENCING
+                        double xpp, xnn, du_xi;
+                        if(j >= 2 && j <= n[1]-3) {
+                            if(pec1 <= 2 && pec1 > -2 ) {
+                                //CENTRAL 4TH ORDER
+
+                                xpp = 8.0*(u[k][ipp][j]-u[k][inn][j]);
+                                xnn = u[k][ipp2][j]-u[k][inn2][j];
+
+                                du_xi = (1.0/12.0)*(xpp-xnn)/dxi[0];
+                            } else {
+                                //UPWIND 3RD ORDER
+                                
+                                double ak1, ak2;
+                                ak1 = uxi[i][j] * (-u[k][ipp2][j] + 8*u[k][ipp][j] -8*u[k][inn][j] + u[k][inn2][j])/(12.0*dxi[0]);
+                                ak2 = fabs(uxi[i][j]) * (u[k][ipp2][j] - 4*u[k][ipp][j] + 6*u[k][i][j] - 4*u[k][inn][j] + u[k][inn2][j])/(4.0*dxi[0]);
+                                ak1=ak1+ak2;
+                                du_xi=ak1/uxi[i][j];
+                            }
+                        } else {
+                            //NEAR BOUNDARY ALWAYS CENTRAL	
+                            xpp = 8.0*(u[k][ipp][j]-u[k][inn][j]);
+                            xnn = u[k][ipp2][j] - u[k][inn2][j];
                             du_xi = (1.0/12.0)*(xpp-xnn)/dxi[0];
-                        } else {
-                            // UPWIND 3RD ORDER
-                            double ak1 = uxi_ij * (-u[uk_ipp2] + 8*u[uk_ipp] 
-                                    - 8*u[uk_inn] + u[uk_inn2])/(12.0*dxi[0]);
-                            double ak2 = fabs(uxi_ij) * (u[uk_ipp2] - 4*u[uk_ipp] 
-                                    + 6*u[uk_row] - 4*u[uk_inn] + u[uk_inn2])/(4.0*dxi[0]);
-                            du_xi = (ak1 + ak2)/uxi_ij;
                         }
-                    } else {
-                        // NEAR BOUNDARY - CENTRAL
-                        double xpp = 8.0*(u[uk_ipp] - u[uk_inn]);
-                        double xnn = u[uk_ipp2] - u[uk_inn2];
-                        du_xi = (1.0/12.0)*(xpp-xnn)/dxi[0];
-                    }
 
-                    // ===== ETA DIRECTION DERIVATIVE =====
-                    double du_et;
-                    if (j >= 2 && j <= n[1]-3) {
-                        if (pec2 <= 2 && pec2 > -2) {
-                            // CENTRAL 4TH ORDER
-                            double ypp = 8.0 * (u[uk_row + jpp_offset] - u[uk_row + jnn_offset]);
-                            double ynn = u[uk_row + jpp2_offset] - u[uk_row + jnn2_offset];
-                            du_et = (1.0/12.0) * (ypp - ynn) / dxi[1];
-                        } else {
-                            // UPWIND 3RD ORDER
-                            double ak3 = uet_ij * (-u[uk_row + jpp2_offset] + 8*u[uk_row + jpp_offset] 
-                                    - 8*u[uk_row + jnn_offset] + u[uk_row + jnn2_offset]) / (12.0 * dxi[1]);
-                            double ak4 = fabs(uet_ij) * (u[uk_row + jpp2_offset] - 4*u[uk_row + jpp_offset] 
-                                    + 6*u[uk_row] - 4*u[uk_row + jnn_offset] 
-                                    + u[uk_row + jnn2_offset]) / (4.0 * dxi[1]);
-                            du_et = (ak3 + ak4) / uet_ij;
+                        double du_et, ypp, ynn, ak3, ak4;
+                        if (j >= 2 && j <= n[1] - 3) {
+
+                            if (pec2 <= 2 && pec2 > -2) {
+
+                                // CENTRAL 4TH ORDER
+                                ypp = 8.0 * (u[k][i][jpp] - u[k][i][jnn]);
+                                ynn = u[k][i][jpp2] - u[k][i][jnn2];
+                                
+                                du_et = (1.0/12.0) * (ypp - ynn) / dxi[1];
+                                
+                            } else {
+                                
+                                // upwind 3RD ORDER
+                                ak3 = uet[i][j] * (-u[k][i][jpp2] + 8*u[k][i][jpp] - 8*u[k][i][jnn] 
+                                                + u[k][i][jnn2]) / (12.0 * dxi[1]);
+                                ak4 = fabs(uet[i][j]) * (u[k][i][jpp2] - 4*u[k][i][jpp] + 6*u[k][i][j] 
+                                                        - 4*u[k][i][jnn] + u[k][i][jnn2]) / (4.0 * dxi[1]);
+                                ak3 = ak3 + ak4;
+                                
+                                du_et = ak3 / uet[i][j];
+                            }
                         }
-                    } else {
-                        // NEAR BOUNDARY - CENTRAL
-                        du_et = 0.5*(u[uk_row + jpp_offset] - u[uk_row + jnn_offset])/dxi[1];
+                        else{
+                            //NEAR BOUNDARY ALWAYS CENTRAL
+                            du_et = 0.5*(u[k][i][jpp]-u[k][i][jnn])/dxi[1];
+                        }
+                        conv[k] = uxi[i][j]*du_xi + uet[i][j]*du_et;
                     }
-
-                    conv[k] = uxi_ij*du_xi + uet_ij*du_et;
-                }
                     // ---------------------------------------------------
                     // DIFFUSION
                     // ---------------------------------------------------
-                    // Guessed velocity field (star)
-                    int idx_ipp_j = idx2(ipp,j);
-                    int idx_inn_j = idx2(inn,j);
-                    int idx_i_jpp = idx2(i,jpp);
-                    int idx_i_jnn = idx2(i,jnn);
 
                     // Guessed velocity field (star)
-                    dp_dxi = (p[row_ipp] - p[row_inn]) / (2.0 * dxi[0]);
-                    dp_de = (p[row_base + jpp_offset] - p[row_base + jnn_offset]) / (2.0 * dxi[1]);
-                    dp_dx = dxix[row_base] * dp_dxi + dex[row_base] * dp_de;
-                    dp_dy = dxiy[row_base] * dp_dxi + dey[row_base] * dp_de;
+                    dp_dxi = (p[ipp][j] - p[inn][j]) / (2.0 * dxi[0]);
+                    dp_de = (p[i][jpp] - p[i][jnn]) / (2.0 * dxi[1]);
+                    dp_dx = dxix[i][j] * dp_dxi + dex[i][j] * dp_de;
+                    dp_dy = dxiy[i][j] * dp_dxi + dey[i][j] * dp_de;
 
-                    qu[row_base] = dt * (-conv[0] - dp_dx) + u[u0_row];
-                    qv[row_base] = dt * (-conv[1] - dp_dy + Ri * u[u2_row]) + u[u1_row];
-                    qt[row_base] = -dt * conv[2] + u[u2_row];
+                    qu[i][j] = dt * (-conv[0] - dp_dx) + u[0][i][j];
+                    qv[i][j] = dt * (-conv[1] - dp_dy + Ri * u[2][i][j]) + u[1][i][j];
+                    qt[i][j] = -dt * conv[2] + u[2][i][j];
 
-                    qup[row_base] = qu[row_base] + dt * dp_dx;
-                    qvp[row_base] = qv[row_base] + dt * dp_dy;
+                    qup[i][j] = qu[i][j] + dt * dp_dx;
+                    qvp[i][j] = qv[i][j] + dt * dp_dy;
 
                     if(j == 1) {
-                    // j=0 neighbors
-                        double sumu = bus[i] * u[u0_row + jnn_offset] 
-                                    + buse[i] * u[u0_ipp + jnn_offset] 
-                                    + busw[i] * u[u0_inn + jnn_offset];
-                        qu[row_base] -= sumu;
+                        double sumu = bus[i] * u[0][i][jnn] + buse[i] * u[0][ipp][jnn] + busw[i] * u[0][inn][jnn];
+                        qu[i][j] = qu[i][j] - sumu;
                         
-                        double sumv = bus[i] * u[u1_row + jnn_offset] 
-                                    + buse[i] * u[u1_ipp + jnn_offset] 
-                                    + busw[i] * u[u1_inn + jnn_offset];
-                        qv[row_base] -= sumv;
+                        double sumv = bus[i] * u[1][i][jnn] + buse[i] * u[1][ipp][jnn] + busw[i] * u[1][inn][jnn];
+                        qv[i][j] = qv[i][j] - sumv;
                         
-                        double sumt = bts[i] * u[u2_row + jnn_offset] 
-                                    + btse[i] * u[u2_ipp + jnn_offset] 
-                                    + btsw[i] * u[u2_inn + jnn_offset];
-                        qt[row_base] -= sumt;
+                        double sumt = bts[i] * u[2][i][jnn] + btse[i] * u[2][ipp][jnn] + btsw[i] * u[2][inn][jnn];
+                        qt[i][j] = qt[i][j] - sumt;
 
-                        sumu = bus[i] * up[u0_row + jnn_offset] 
-                            + buse[i] * up[u0_ipp + jnn_offset] 
-                            + busw[i] * up[u0_inn + jnn_offset];
-                        qup[row_base] -= sumu;
+                        sumu = bus[i] * up[0][i][jnn] + buse[i] * up[0][ipp][jnn] + busw[i] * up[0][inn][jnn];
+                        qup[i][j] = qup[i][j] - sumu;
                         
-                        sumv = bus[i] * up[u1_row + jnn_offset] 
-                            + buse[i] * up[u1_ipp + jnn_offset] 
-                            + busw[i] * up[u1_inn + jnn_offset];
-                        qvp[row_base] -= sumv;
+                        sumv = bus[i] * up[1][i][jnn] + buse[i] * up[1][ipp][jnn] + busw[i] * up[1][inn][jnn];
+                        qvp[i][j] = qvp[i][j] - sumv;
                     }
                     
                     if (j == n[1]-2) {
-                        // j=n[1]-1 neighbors
-                        double sumu = bun[i] * u[u0_row + jpp_offset] 
-                                    + bune[i] * u[u0_ipp + jpp_offset] 
-                                    + bunw[i] * u[u0_inn + jpp_offset];
-                        qu[row_base] -= sumu;
+                        double sumu = bun[i] * u[0][i][jpp] + bune[i] * u[0][ipp][jpp] + bunw[i] * u[0][inn][jpp];
+                        qu[i][j] = qu[i][j] - sumu;
+                        
+                        double sumv = bun[i] * u[1][i][jpp] + bune[i] * u[1][ipp][jpp] + bunw[i] * u[1][inn][jpp];
+                        qv[i][j] = qv[i][j] - sumv;
+                        
+                        double sumt = btn[i] * u[2][i][jpp] + btne[i] * u[2][ipp][jpp] + btnw[i] * u[2][inn][jpp];
+                        qt[i][j] = qt[i][j] - sumt;
 
-                        double sumv = bun[i] * u[u1_row + jpp_offset] 
-                                    + bune[i] * u[u1_ipp + jpp_offset] 
-                                    + bunw[i] * u[u1_inn + jpp_offset];
-                        qv[row_base] -= sumv;
-
-                        double sumt = btn[i] * u[u2_row + jpp_offset] 
-                                    + btne[i] * u[u2_ipp + jpp_offset] 
-                                    + btnw[i] * u[u2_inn + jpp_offset];
-                        qt[row_base] -= sumt;
-
-                        sumu = bun[i] * up[u0_row + jpp_offset] 
-                            + bune[i] * up[u0_ipp + jpp_offset] 
-                            + bunw[i] * up[u0_inn + jpp_offset];
-                        qup[row_base] -= sumu;
-
-                        sumv = bun[i] * up[u1_row + jpp_offset] 
-                            + bune[i] * up[u1_ipp + jpp_offset] 
-                            + bunw[i] * up[u1_inn + jpp_offset];
-                        qvp[row_base] -= sumv;
+                        sumu = bun[i] * up[0][i][jpp] + bune[i] * up[0][ipp][jpp] + bunw[i] * up[0][inn][jpp];
+                        qup[i][j] = qup[i][j] - sumu;
+                        
+                        sumv = bun[i] * up[1][i][jpp] + bune[i] * up[1][ipp][jpp] + bunw[i] * up[1][inn][jpp];
+                        qvp[i][j] = qvp[i][j] - sumv;
                     }
 
-                    // Periodic BC copy
                     if(i == 0) {
-                        qu[row_last] = qu[row_base];
-                        qv[row_last] = qv[row_base];
-                        qt[row_last] = qt[row_base];
-                        qup[row_last] = qup[row_base];
-                        qvp[row_last] = qvp[row_base];
+                        qu[n[0]-1][j] = qu[0][j];
+                        qv[n[0]-1][j] = qv[0][j];
+                        qt[n[0]-1][j] = qt[0][j];
+                        qup[n[0]-1][j] = qup[0][j];
+                        qvp[n[0]-1][j] = qvp[0][j];
                     }
-
-                    // INCREMENT ALL POINTERS for next j
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    row_inn2++;
-                    row_ipp2++;
-                    row_last++;
-                    
-                    u0_row++;
-                    u1_row++;
-                    u2_row++;
-                    u0_inn++;
-                    u0_ipp++;
-                    u0_inn2++;
-                    u0_ipp2++;
-                    u1_inn++;
-                    u1_ipp++;
-                    u1_inn2++;
-                    u1_ipp2++;
-                    u2_inn++;
-                    u2_ipp++;
-                    u2_inn2++;
-                    u2_ipp2++;
-
                 }
             } //end of space scan
-
+            
             //solving u-vel
             // cout << "Solving u-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                int idx_base = i * STRIDE_I;
-                int u0_base = idx_base;
-                
-                for(int j = 0; j < n[1]; j++, idx_base++, u0_base++) {
-                    sol[idx_base] = u[u0_base];
+                for(int j = 0; j < n[1]; j++) {
+                    sol[i][j] = u[0][i][j];
                 }
             }
 
@@ -1374,29 +1272,20 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qu);
 
-            // Update us array
             for(int i = 0; i < n[0]-1; i++) {
-                int idx_base = i * STRIDE_I + 1;
-                int us0_base = idx_base;
-                int us0_last = (n[0]-1) * STRIDE_I + 1;
-                
-                for(int j = 1; j < n[1]-1; j++, idx_base++, us0_base++, us0_last++) {
-                    us[us0_base] = sol[idx_base];
+                for(int j = 1; j < n[1]-1; j++) {
+                    us[0][i][j] = sol[i][j];
                     if (i == 0) {
-                        us[us0_last] = sol[idx_base];
+                        us[0][n[0]-1][j] = sol[i][j];
                     }
                 }
             }
 
-
             // 'solving v-vel'
             // cout << "Solving v-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                int idx_base = i * STRIDE_I;
-                int u1_base = idx_base + STRIDE_K;
-                
-                for(int j = 0; j < n[1]; j++, idx_base++, u1_base++) {
-                    sol[idx_base] = u[u1_base];
+                for(int j = 0; j < n[1]; j++) {
+                    sol[i][j] = u[1][i][j];
                 }
             }
 
@@ -1405,14 +1294,10 @@ public:
                 aunee, aunww, auee, auww, sol, qv);
 
             for(int i = 0; i < n[0]-1; i++) {
-                int idx_base = i * STRIDE_I + 1;
-                int us1_base = idx_base + STRIDE_K;
-                int us1_last = (n[0]-1) * STRIDE_I + 1 + STRIDE_K;
-                
-                for(int j = 1; j < n[1]-1; j++, idx_base++, us1_base++, us1_last++) {
-                    us[us1_base] = sol[idx_base];
+                for(int j = 1; j < n[1]-1; j++) {
+                    us[1][i][j] = sol[i][j];
                     if (i == 0) {
-                        us[us1_last] = sol[idx_base];
+                        us[1][n[0]-1][j] = sol[i][j];
                     }
                 }
             }
@@ -1420,11 +1305,8 @@ public:
             // 'solving T'
             // cout << "Solving temperature..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                int idx_base = i * STRIDE_I;
-                int u2_base = idx_base + 2*STRIDE_K;
-                
-                for(int j = 0; j < n[1]; j++, idx_base++, u2_base++) {
-                    sol[idx_base] = u[u2_base];
+                for(int j = 0; j < n[1]; j++) {
+                    sol[i][j] = u[2][i][j];
                 }
             }
 
@@ -1433,14 +1315,10 @@ public:
                 atnee, atnww, atee, atww, sol, qt);
 
             for(int i = 0; i < n[0]-1; i++) {
-                int idx_base = i * STRIDE_I + 1;
-                int u2_base = idx_base + 2*STRIDE_K;
-                int u2_last = (n[0]-1) * STRIDE_I + 1 + 2*STRIDE_K;
-                
-                for(int j = 1; j < n[1]-1; j++, idx_base++, u2_base++, u2_last++) {
-                    u[u2_base] = sol[idx_base];
+                for(int j = 1; j < n[1]-1; j++) {
+                    u[2][i][j] = sol[i][j];
                     if (i == 0) {
-                        u[u2_last] = sol[idx_base];
+                        u[2][n[0]-1][j] = sol[i][j];
                     }
                 }
             }
@@ -1448,14 +1326,12 @@ public:
             // 'solving up-vel'
             // cout << "Solving up-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                int idx = i * STRIDE_I;
-                sol[idx] = up[idx];  // up[0][i][0]
+                sol[i][0] = up[0][i][0];
             }
 
             for(int i = 0; i < n[0]; i++) {
-                int idx_base = i * STRIDE_I + 1;
-                for(int j = 1; j < n[1]; j++, idx_base++) {
-                    sol[idx_base] = 0.0;
+                for(int j = 1; j < n[1]; j++) {
+                    sol[i][j] = 0.0;
                 }
             }
 
@@ -1464,14 +1340,10 @@ public:
                 aunee, aunww, auee, auww, sol, qup);
 
             for(int i = 0; i < n[0]-1; i++) {
-                int idx_base = i * STRIDE_I + 1;
-                int up0_base = idx_base;
-                int up0_last = (n[0]-1) * STRIDE_I + 1;
-                
-                for(int j = 1; j < n[1]-1; j++, idx_base++, up0_base++, up0_last++) {
-                    up[up0_base] = sol[idx_base];
+                for(int j = 1; j < n[1]-1; j++) {
+                    up[0][i][j] = sol[i][j];
                     if (i == 0) {
-                        up[up0_last] = sol[idx_base];
+                        up[0][n[0]-1][j] = sol[i][j];
                     }
                 }
             }
@@ -1479,14 +1351,12 @@ public:
             // 'solving vp-vel'
             // cout << "Solving vp-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                int idx = i * STRIDE_I;
-                sol[idx] = up[idx + STRIDE_K];  // up[1][i][0]
+                sol[i][0] = up[1][i][0];
             }
 
             for(int i = 0; i < n[0]; i++) {
-                int idx_base = i * STRIDE_I + 1;
-                for(int j = 1; j < n[1]; j++, idx_base++) {
-                    sol[idx_base] = 0.0;
+                for(int j = 1; j < n[1]; j++) {
+                    sol[i][j] = 0.0;
                 }
             }
 
@@ -1495,14 +1365,10 @@ public:
                 aunee, aunww, auee, auww, sol, qvp);
 
             for(int i = 0; i < n[0]-1; i++) {
-                int idx_base = i * STRIDE_I + 1;
-                int up1_base = idx_base + STRIDE_K;
-                int up1_last = (n[0]-1) * STRIDE_I + 1 + STRIDE_K;
-                
-                for(int j = 1; j < n[1]-1; j++, idx_base++, up1_base++, up1_last++) {
-                    up[up1_base] = sol[idx_base];
+                for(int j = 1; j < n[1]-1; j++) {
+                    up[1][i][j] = sol[i][j];
                     if (i == 0) {
-                        up[up1_last] = sol[idx_base];
+                        up[1][n[0]-1][j] = sol[i][j];
                     }
                 }
             }
@@ -1512,129 +1378,107 @@ public:
             // ------------------------------------------------------
             // cout << "Updating boundary conditions for up..." << endl;
             int j = n[1] - 1;
-            int up0_base = j;
-            int up1_base = j + STRIDE_K;
-            int jnn = j - 1;
-
             for(int i = 0; i < n[0] - 1; i++) {
+
+                // vnn = u[0][i][j] * xnox[i] + u[1][i][j] * xnoy[i];
                 vnn = uinf * xnox[i] + vinf * xnoy[i];
 
                 if(vnn >= 0) {
-                    up[up0_base] = u[up0_base];
-                    up[up1_base] = u[up1_base];
+                    up[0][i][j] = u[0][i][j];
+                    up[1][i][j] = u[1][i][j];
                 }
                 else {
-                    // Extrapolation from interior
-                    up[up0_base] = (5.0 * up[up0_base - 1] - 4.0 * up[up0_base - 2] + up[up0_base - 3]) / 2.0;
-                    up[up1_base] = (5.0 * up[up1_base - 1] - 4.0 * up[up1_base - 2] + up[up1_base - 3]) / 2.0;
+                    inn = i - 1;
+                    ipp = i + 1;
+                    if(i == 0) 
+                        inn = n[0] - 2;
+
+                    jnn = j - 1;
+
+                    up[0][i][j] = (5.0 * up[0][i][jnn] - 4.0 * up[0][i][jnn-1] + up[0][i][jnn-2]) / 2.0;
+                    up[1][i][j] = (5.0 * up[1][i][jnn] - 4.0 * up[1][i][jnn-1] + up[1][i][jnn-2]) / 2.0;
                 }
 
                 if (i == 0) {
-                    int last_idx = (n[0]-1) * STRIDE_I + j;
-                    up[last_idx] = up[up0_base];
-                    up[last_idx + STRIDE_K] = up[up1_base];
+                    up[0][n[0] - 1][j] = up[0][i][j];
+                    up[1][n[0] - 1][j] = up[1][i][j];
                 }
-                
-                up0_base += STRIDE_I;
-                up1_base += STRIDE_I;
             }
+
+           
 
             // ----------------------------------------------------------
             // calculation of star velocities at i+-1/2 and j+-1/2
             // ----------------------------------------------------------
             // cout << "Calculating star velocities at i+-1/2 and j+-1/2..." << endl;
             for(int i = 0; i < n[0] - 1; i++) {
-                int row_base = i * STRIDE_I + 1;
-                
-                int inn = (i == 0) ? n[0] - 2 : i - 1;
-                int ipp = i + 1;
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                
-                int up0_base = row_base;
-                int up1_base = row_base + STRIDE_K;
-                int up0_inn = row_inn;
-                int up0_ipp = row_ipp;
-                int up1_inn = row_inn + STRIDE_K;
-                int up1_ipp = row_ipp + STRIDE_K;
-
                 for(int j = 1; j < n[1] - 1; j++) {
-                    // All neighbors via simple offsets
-                    double dxix_ij = dxix[row_base];
-                    double dxiy_ij = dxiy[row_base];
-                    double dex_ij = dex[row_base];
-                    double dey_ij = dey[row_base];
+                    if (i == 0) {
+                        inn = n[0] - 2;
+                        ipp = i + 1;
+                    }
+                    else {
+                        inn = i - 1;
+                        ipp = i + 1;
+                    }
+                    jpp = j + 1;
+                    jnn = j - 1;
 
-                    // Pressure derivatives at half-points
-                    double dpdxi_ip = (p[row_ipp] - p[row_base]) / dxi[0];
-                    double dpde_ip = (p[row_ipp + 1] + p[row_base + 1] - p[row_base - 1] - p[row_ipp - 1]) / (4.0 * dxi[1]);
+                    double dpdxi_ip = (p[ipp][j] - p[i][j]) / dxi[0];
+                    double dpde_ip = (p[ipp][jpp] + p[i][jpp] - p[i][jnn] - p[ipp][jnn]) / (4.0 * dxi[1]);
 
-                    double dpdxi_in = (p[row_base] - p[row_inn]) / dxi[0];
-                    double dpde_in = (p[row_base + 1] + p[row_inn + 1] - p[row_base - 1] - p[row_inn - 1]) / (4.0 * dxi[1]);
+                    double dpdxi_in = (p[i][j] - p[inn][j]) / dxi[0];
+                    double dpde_in = (p[i][jpp] + p[inn][jpp] - p[i][jnn] - p[inn][jnn]) / (4.0 * dxi[1]);
 
-                    double dpdxi_jp = (p[row_ipp + 1] - p[row_inn + 1] + p[row_ipp] - p[row_inn]) / (4.0 * dxi[0]);
-                    double dpde_jp = (p[row_base + 1] - p[row_base]) / dxi[1];
+                    double dpdxi_jp = (p[ipp][jpp] - p[inn][jpp] + p[ipp][j] - p[inn][j]) / (4.0 * dxi[0]);
+                    double dpde_jp = (p[i][jpp] - p[i][j]) / dxi[1];
 
-                    double dpdxi_jn = (p[row_ipp] - p[row_inn] + p[row_ipp - 1] - p[row_inn - 1]) / (4.0 * dxi[0]);
-                    double dpde_jn = (p[row_base] - p[row_base - 1]) / dxi[1];
+                    double dpdxi_jn = (p[ipp][j] - p[inn][j] + p[ipp][jnn] - p[inn][jnn]) / (4.0 * dxi[0]);
+                    double dpde_jn = (p[i][j] - p[i][jnn]) / dxi[1];
 
-                    // Star velocities (u-component)
-                    double us_ip = 0.5 * (up[up0_base] + up[up0_ipp]) - 0.5 * dt * 
-                                ((dxix_ij + dxix[row_ipp]) * dpdxi_ip + (dex_ij + dex[row_ipp]) * dpde_ip);
+                    double us_ip = 0.5 * (up[0][i][j] + up[0][ipp][j]) - 0.5 * dt * ((dxix[i][j] + dxix[ipp][j]) 
+                                * dpdxi_ip + (dex[i][j] + dex[ipp][j]) * dpde_ip);
 
-                    double us_in = 0.5 * (up[up0_base] + up[up0_inn]) - 0.5 * dt * 
-                                ((dxix_ij + dxix[row_inn]) * dpdxi_in + (dex_ij + dex[row_inn]) * dpde_in);
+                    double us_in = 0.5 * (up[0][i][j] + up[0][inn][j]) - 0.5 * dt * ((dxix[i][j] + dxix[inn][j]) 
+                                * dpdxi_in + (dex[i][j] + dex[inn][j]) * dpde_in);
 
-                    double us_jp = 0.5 * (up[up0_base] + up[up0_base + 1]) - 0.5 * dt * 
-                                ((dxix_ij + dxix[row_base + 1]) * dpdxi_jp + (dex_ij + dex[row_base + 1]) * dpde_jp);
+                    double us_jp = 0.5 * (up[0][i][j] + up[0][i][jpp]) - 0.5 * dt * ((dxix[i][j] + dxix[i][jpp]) 
+                                * dpdxi_jp + (dex[i][j] + dex[i][jpp]) * dpde_jp);
 
-                    double us_jn = 0.5 * (up[up0_base] + up[up0_base - 1]) - 0.5 * dt * 
-                                ((dxix_ij + dxix[row_base - 1]) * dpdxi_jn + (dex_ij + dex[row_base - 1]) * dpde_jn);
+                    double us_jn = 0.5 * (up[0][i][j] + up[0][i][jnn]) - 0.5 * dt * ((dxix[i][j] + dxix[i][jnn]) 
+                                * dpdxi_jn + (dex[i][j] + dex[i][jnn]) * dpde_jn);
 
-                    // Star velocities (v-component)
-                    double vs_ip = 0.5 * (up[up1_base] + up[up1_ipp]) - 0.5 * dt * 
-                                ((dxiy_ij + dxiy[row_ipp]) * dpdxi_ip + (dey_ij + dey[row_ipp]) * dpde_ip);
+                    double vs_ip = 0.5 * (up[1][i][j] + up[1][ipp][j]) - 0.5 * dt * ((dxiy[i][j] + dxiy[ipp][j]) 
+                                * dpdxi_ip + (dey[i][j] + dey[ipp][j]) * dpde_ip);
 
-                    double vs_in = 0.5 * (up[up1_base] + up[up1_inn]) - 0.5 * dt * 
-                                ((dxiy_ij + dxiy[row_inn]) * dpdxi_in + (dey_ij + dey[row_inn]) * dpde_in);
+                    double vs_in = 0.5 * (up[1][i][j] + up[1][inn][j]) - 0.5 * dt * ((dxiy[i][j] + dxiy[inn][j]) 
+                                * dpdxi_in + (dey[i][j] + dey[inn][j]) * dpde_in);
 
-                    double vs_jp = 0.5 * (up[up1_base] + up[up1_base + 1]) - 0.5 * dt * 
-                                ((dxiy_ij + dxiy[row_base + 1]) * dpdxi_jp + (dey_ij + dey[row_base + 1]) * dpde_jp);
+                    double vs_jp = 0.5 * (up[1][i][j] + up[1][i][jpp]) - 0.5 * dt * ((dxiy[i][j] + dxiy[i][jpp]) 
+                                * dpdxi_jp + (dey[i][j] + dey[i][jpp]) * dpde_jp);
 
-                    double vs_jn = 0.5 * (up[up1_base] + up[up1_base - 1]) - 0.5 * dt * 
-                                ((dxiy_ij + dxiy[row_base - 1]) * dpdxi_jn + (dey_ij + dey[row_base - 1]) * dpde_jn);
+                    double vs_jn = 0.5 * (up[1][i][j] + up[1][i][jnn]) - 0.5 * dt * ((dxiy[i][j] + dxiy[i][jnn]) 
+                                * dpdxi_jn + (dey[i][j] + dey[i][jnn]) * dpde_jn);
 
-                    // Divergence
                     double dusdxi = (us_ip - us_in) / dxi[0];
                     double dusde = (us_jp - us_jn) / dxi[1];
                     double dvsdxi = (vs_ip - vs_in) / dxi[0];
                     double dvsde = (vs_jp - vs_jn) / dxi[1];
 
-                    q[row_base] = ((dxix_ij * dusdxi) + (dex_ij * dusde) + (dxiy_ij * dvsdxi) + (dey_ij * dvsde)) / dt;
-                    
-                    // Increment all pointers
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    up0_base++;
-                    up1_base++;
-                    up0_inn++;
-                    up0_ipp++;
-                    up1_inn++;
-                    up1_ipp++;
+                    q[i][j] = (dxix[i][j] * dusdxi) + (dex[i][j] * dusde) + (dxiy[i][j] * dvsdxi) + 
+                            (dey[i][j] * dvsde);
+
+                    q[i][j] = q[i][j] / dt;
                 }
             }
 
             // INITIALIZING THE PCORR
             // cout << "Initializing pcor..." << endl;
-            memset(pcor, 0, np1 * np2 * sizeof(double));
             for(int i = 0; i < n[0]; i++) {
-                int u0_base = i * STRIDE_I;
-                int u1_base = u0_base + STRIDE_K;
-                
-                for(int j = 0; j < n[1]; j++, u0_base++, u1_base++) {
-                    uold[u0_base] = u[u0_base];
-                    uold[u1_base] = u[u1_base];
+                for(int j = 0; j < n[1]; j++) {
+                    pcor[i][j] = 0;
+                    uold[0][i][j] = u[0][i][j];
+                    uold[1][i][j] = u[1][i][j];
                 }
             }
 
@@ -1642,43 +1486,37 @@ public:
             // performing Gauss Seidel iterations
             // ----------------------------------------------------
             // cout << "Performing Gauss-Seidel iterations..." << endl;
-            // performing Gauss Seidel iterations
+            // call goss9p(pcor, q);
             sip9p(ap, ae, as, an, aw, ase, asw, ane, anw, pcor, q);
 
             // ------apply boundary condition on Pcor
             // cout << "Applying boundary condition on pcor..." << endl;
             if (norm == 1) {
                 cout << "hello" << endl;
-            } else {
-                // Solid boundary (j=0)
+            }
+            else {
+                // --------------solid-boundary-------------------
                 int j = 0;
-                int pcor_base = j;
-                int pcor_next = j + 1;
-                
-                for(int i = 0; i < n[0] - 1; i++, pcor_base += STRIDE_I, pcor_next += STRIDE_I) {
-                    pcor[pcor_base] = pcor[pcor_next];
 
-                    if (i == 0) {
-                        int last_idx = (n[0] - 1) * STRIDE_I + j;
-                        pcor[last_idx] = pcor[pcor_base];
-                    }
+                for(int i = 0; i < n[0] - 1; i++) {
+                    pcor[i][j] = pcor[i][j + 1];
+
+                    if (i == 0) 
+                        pcor[n[0] - 1][j] = pcor[i][j];
                 }
 
-                // Artificial boundary (j=n[1]-1)
+                // ----------------artificial boundary--------------
                 j = n[1] - 1;
-                pcor_base = j;
-                int pcor_prev = j - 1;
 
-                for(int i = 0; i < n[0] - 1; i++, pcor_base += STRIDE_I, pcor_prev += STRIDE_I) {
+                for(int i = 0; i < n[0] - 1; i++) {
                     vnn = uinf * xnox[i] + vinf * xnoy[i];
 
-                    pcor[pcor_base] = 0;
+                    pcor[i][j] = 0;
                     if(vnn >= 0) 
-                        pcor[pcor_base] = pcor[pcor_prev];
+                        pcor[i][j] = pcor[i][j - 1];
 
                     if (i == 0) {
-                        int last_idx = (n[0] - 1) * STRIDE_I + j;
-                        pcor[last_idx] = pcor[pcor_base];
+                        pcor[n[0] - 1][j] = pcor[i][j];
                     }
                 }
             }
@@ -1688,53 +1526,40 @@ public:
             // ---------------------------------------------------------
             // cout << "Updating U and V from pcor in the interior..." << endl;
             for(int i = 0; i < n[0] - 1; i++) {
-                int row_base = i * STRIDE_I + 1;
-                
-                int inn = (i == 0) ? n[0] - 2 : i - 1;
-                int ipp = i + 1;
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                
-                int u0_base = row_base;
-                int u1_base = row_base + STRIDE_K;
-                int us0_base = row_base;
-                int us1_base = row_base + STRIDE_K;
-                int u0_last = (n[0]-1) * STRIDE_I + 1;
-                int u1_last = u0_last + STRIDE_K;
-                
                 for(int j = 1; j < n[1] - 1; j++) {
-                    double dpcor_dxi = 0.5 * (pcor[row_ipp] - pcor[row_inn]) / dxi[0];
-                    double dpcor_de = 0.5 * (pcor[row_base + 1] - pcor[row_base - 1]) / dxi[1];
-
-                    u[u0_base] = us[us0_base] - dt * (dxix[row_base] * dpcor_dxi + dex[row_base] * dpcor_de);
-                    u[u1_base] = us[us1_base] - dt * (dxiy[row_base] * dpcor_dxi + dey[row_base] * dpcor_de);
 
                     if (i == 0) {
-                        u[u0_last] = u[u0_base];
-                        u[u1_last] = u[u1_base];
+                        inn = n[0] - 2;
+                        ipp = i + 1;
                     }
-                    
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    u0_base++;
-                    u1_base++;
-                    us0_base++;
-                    us1_base++;
-                    u0_last++;
-                    u1_last++;
+                    else {
+                        inn = i - 1;
+                        ipp = i + 1;
+                    }
+                    jpp = j + 1;
+                    jnn = j - 1;
+
+                    double dpcor_dxi = 0.5 * (pcor[ipp][j] - pcor[inn][j]) / dxi[0];
+
+                    double dpcor_de = 0.5 * (pcor[i][jpp] - pcor[i][jnn]) / dxi[1];
+
+                    u[0][i][j] = us[0][i][j] - dt * (dxix[i][j] * dpcor_dxi + dex[i][j] * dpcor_de);
+
+                    u[1][i][j] = us[1][i][j] - dt * (dxiy[i][j] * dpcor_dxi + dey[i][j] * dpcor_de);
+
+                    if (i == 0) {
+                        u[0][n[0] - 1][j] = u[0][i][j];
+                        u[1][n[0] - 1][j] = u[1][i][j];
+                    }
                 }
             }
 
             for(int i = 0; i < n[0] - 1; i++) {
-                int row_base = i * STRIDE_I + 1;
-                int row_last = (n[0]-1) * STRIDE_I + 1;
-                
-                for(int j = 1; j < n[1] - 1; j++, row_base++, row_last++) {
-                    p[row_base] = p[row_base] + pcor[row_base];
+                for(int j = 1; j < n[1] - 1; j++) {
+                    p[i][j] = p[i][j] + pcor[i][j];
 
                     if (i == 0) {
-                        p[row_last] = p[row_base];
+                        p[n[0] - 1][j] = p[i][j];
                     }
                 }
             }
@@ -1745,30 +1570,18 @@ public:
             // ==========================================================
             // cout << "Evaluating Vr and Vth from U and V velocity..." << endl;
             j = n[1] - 2;
-            int u0_base = j;
-            int u1_base = j + STRIDE_K;
-            int x0_base = j;
-            int x1_base = j + STRIDE_K;
-
             for(int i = 0; i < n[0] - 1; i++) {
-                double x0 = x[x0_base];
-                double x1 = x[x1_base];
-                double r = sqrt(x0*x0 + x1*x1);
-                double costh = x0 / r;
-                double sinth = x1 / r;
 
-                vr[i] = u[u0_base] * costh + u[u1_base] * sinth;
-                vth[i] = -u[u0_base] * sinth + u[u1_base] * costh;
+                double costh = x[0][i][j] / sqrt(x[0][i][j] * x[0][i][j] + x[1][i][j] * x[1][i][j]);
+                double sinth = x[1][i][j] / sqrt(x[0][i][j] * x[0][i][j] + x[1][i][j] * x[1][i][j]);
+
+                vr[0][i] = u[0][i][j] * costh + u[1][i][j] * sinth;
+                vth[0][i] = -u[0][i][j] * sinth + u[1][i][j] * costh;
 
                 if (i == 0) {
-                    vr[n[0] - 1] = vr[i];
-                    vth[n[0] - 1] = vth[i];
+                    vr[0][n[0] - 1] = vr[0][i];
+                    vth[0][n[0] - 1] = vth[0][i];
                 }
-                
-                u0_base += STRIDE_I;
-                u1_base += STRIDE_I;
-                x0_base += STRIDE_I;
-                x1_base += STRIDE_I;
             }
 
             // ===========================================================
@@ -1777,16 +1590,12 @@ public:
             // cout << "Calculating circulation at the 2nd last level..." << endl;
             double circ = 0.0;
             j = n[1] - 2;
-            int row_base = j;
-
-            for(int i = 0; i < n[0] - 1; i++, row_base += STRIDE_I) {
-                int row_next = row_base + STRIDE_I;
-                
+            for(int i = 0; i < n[0] - 1; i++) {
                 double de = 1.0 / (n[0] - 2);
-                double f1 = (u[row_base] * dey[row_base] - u[row_base + STRIDE_K] * dex[row_base]) * fabs(ajac[row_base]);
-                double f2 = (u[row_next] * dey[row_next] - u[row_next + STRIDE_K] * dex[row_next]) * fabs(ajac[row_next]);
+                double f1 = (u[0][i][j] * dey[i][j] - u[1][i][j] * dex[i][j]) * fabs(ajac[i][j]);
+                double f2 = (u[0][i + 1][j] * dey[i + 1][j] - u[1][i + 1][j] * dex[i + 1][j]) * fabs(ajac[i + 1][j]);
 
-                circ += de * 0.5 * (f1 + f2);
+                circ = circ + de * 0.5 * (f1 + f2);
             }
 
             // =========================================================
@@ -1794,44 +1603,33 @@ public:
             // =========================================================
             // cout << "Predicting values for vr and vth at outer..." << endl;
             j = n[1] - 1;
-            int jm1 = j - 1;
-            x0_base = j;
-            x1_base = j + STRIDE_K;
-            int x0_jm1 = jm1;
-            int x1_jm1 = jm1 + STRIDE_K;
-
             for(int i = 0; i < n[0] - 1; i++) {
                 double eps = 1e-2;
+                double cr = sqrt(x[0][i][j-1] * x[0][i][j-1] + x[1][i][j-1] * x[1][i][j-1]) / 
+                            sqrt(x[0][i][j] * x[0][i][j] + x[1][i][j] * x[1][i][j]);
                 
-                double x0_j = x[x0_base];
-                double x1_j = x[x1_base];
-                double x0_jm = x[x0_jm1];
-                double x1_jm = x[x1_jm1];
-                
-                double cr = sqrt(x0_jm*x0_jm + x1_jm*x1_jm) / sqrt(x0_j*x0_j + x1_j*x1_j);
-                double r = sqrt(x0_j*x0_j + x1_j*x1_j);
-                double costh = x0_j / r;
-                double sinth = x1_j / r;
+                double costh = x[0][i][j] / sqrt(x[0][i][j] * x[0][i][j] + x[1][i][j] * x[1][i][j]);
+                double sinth = x[1][i][j] / sqrt(x[0][i][j] * x[0][i][j] + x[1][i][j] * x[1][i][j]);
 
                 double vrinf = uinf * costh + vinf * sinth;
                 double vtinf = -uinf * sinth + vinf * costh;
                 
-                int kk = (fabs(circ) > eps) ? 1 : 2;
+                int kk;
+                if (fabs(circ) > eps) {
+                    kk = 1;
+                }
+                else {
+                    kk = 2;
+                }
 
-                vr[np1 + i] = vr[i] * pow(cr, 2) + vrinf * (1 - pow(cr, 2));
-                vth[np1 + i] = vth[i] * pow(cr, kk) + vtinf * (1 - pow(cr, kk));
+                vr[1][i] = vr[0][i] * pow(cr, 2) + vrinf * (1 - pow(cr, 2));
+                vth[1][i] = vth[0][i] * pow(cr, kk) + vtinf * (1 - pow(cr, kk));
 
                 if (i == 0) {
-                    vr[np1 + n[0] - 1] = vr[np1 + i];
-                    vth[np1 + n[0] - 1] = vth[np1 + i];
+                    vr[1][n[0] - 1] = vr[1][i];
+                    vth[1][n[0] - 1] = vth[1][i];
                 }
-                
-                x0_base += STRIDE_I;
-                x1_base += STRIDE_I;
-                x0_jm1 += STRIDE_I;
-                x1_jm1 += STRIDE_I;
             }
-
 
             // --------------------------------------------------
             // updating the bc of U And V
@@ -1840,68 +1638,44 @@ public:
             // -----------------cylinder_oscillation--------------
             // cout << "Applying cylinder oscillation boundary condition..." << endl;
             j = 0;
-
             for(int k = 0; k < 2; k++) {
-                int uk_base = k * STRIDE_K + j;
-                int xother_base = (1-k) * STRIDE_K + j;
-                
-                for(int i = 0; i < n[0]; i++, uk_base += STRIDE_I, xother_base += STRIDE_I) {
+                for(int i = 0; i < n[0]; i++) {
+
                     if(k == 0) {
-                        u[uk_base] = -speed_amp * cos(2.0 * Pi * F * time) * x[xother_base + STRIDE_K];
-                        up[uk_base] = u[uk_base];
+                        u[k][i][j] = -speed_amp * cos(2.0 * Pi * F * time) * x[1][i][j];      // line edited
+                        up[k][i][j] = u[k][i][j];
                     }
                     else {
-                        u[uk_base] = speed_amp * cos(2.0 * Pi * F * time) * x[xother_base - STRIDE_K];
-                        up[uk_base] = u[uk_base];
+                        u[k][i][j] = speed_amp * cos(2.0 * Pi * F * time) * x[0][i][j];       // line edited
+                        up[k][i][j] = u[k][i][j];
                     }
                 }
             }
 
             j = n[1] - 1;
-            u0_base = j;
-            u1_base = j + STRIDE_K;
-            int u2_base = j + 2*STRIDE_K;
-            int uold2_base = u2_base;
-            int uold2_jm1 = j - 1 + 2*STRIDE_K;
-            x0_base = j;
-            x1_base = j + STRIDE_K;
-            int uet_base = j;
 
             for(int i = 0; i < n[0] - 1; i++) {
+
                 vnn = uinf * xnox[i] + vinf * xnoy[i];
-                
                 if(vnn >= 0) {
-                    u[u0_base] = uinf;
-                    u[u1_base] = vinf;
-                    u[u2_base] = 0.0;
+                    u[0][i][j] = uinf;
+                    u[1][i][j] = vinf;
+                    u[2][i][j] = 0.0;
                 }
                 else {
-                    double x0 = x[x0_base];
-                    double x1 = x[x1_base];
-                    double r = sqrt(x0*x0 + x1*x1);
-                    double costh = x0 / r;
-                    double sinth = x1 / r;
+                    double costh = x[0][i][j] / sqrt(x[0][i][j] * x[0][i][j] + x[1][i][j] * x[1][i][j]);
+                    double sinth = x[1][i][j] / sqrt(x[0][i][j] * x[0][i][j] + x[1][i][j] * x[1][i][j]);
 
-                    u[u0_base] = costh * vr[np1 + i] - sinth * vth[np1 + i];
-                    u[u1_base] = sinth * vr[np1 + i] + costh * vth[np1 + i];
-                    u[u2_base] = uold[uold2_base] - (uet[uet_base] * dt / dxi[1]) * (uold[uold2_base] - uold[uold2_jm1]);
+                    u[0][i][j] = costh * vr[1][i] - sinth * vth[1][i];
+                    u[1][i][j] = sinth * vr[1][i] + costh * vth[1][i];
+                    u[2][i][j] = uold[2][i][j] - (uet[i][j] * dt / dxi[1]) * (uold[2][i][j] - uold[2][i][j-1]);
                 }
 
                 if (i == 0) {
-                    int last_idx = (n[0]-1) * STRIDE_I + j;
-                    u[last_idx] = u[u0_base];
-                    u[last_idx + STRIDE_K] = u[u1_base];
-                    u[last_idx + 2*STRIDE_K] = u[u2_base];
+                    u[0][n[0] - 1][j] = u[0][0][j];
+                    u[1][n[0] - 1][j] = u[1][0][j];
+                    u[2][n[0] - 1][j] = u[2][0][j];
                 }
-                
-                u0_base += STRIDE_I;
-                u1_base += STRIDE_I;
-                u2_base += STRIDE_I;
-                uold2_base += STRIDE_I;
-                uold2_jm1 += STRIDE_I;
-                x0_base += STRIDE_I;
-                x1_base += STRIDE_I;
-                uet_base += STRIDE_I;
             }
 
             // =============================
@@ -1914,230 +1688,225 @@ public:
             // ========================================================================
             // cout << "Applying momentum equation on inlet and solid boundary..." << endl;
             // obtaining the new uxi and uet
-            for (int i = 0; i < n[0]; i++) {
-                int base2d = i * STRIDE_I;
-                int u0 = base2d;                 // u[0][i][0]
-                int u1 = base2d + STRIDE_K;      // u[1][i][0]
-                for (int j = 0; j < n[1]; j++) {
-                    uxi[base2d] = dxix[base2d] * u[u0] + dxiy[base2d] * u[u1];
-                    uet[base2d] =  dex[base2d] * u[u0] +  dey[base2d] * u[u1];
-                    base2d++; u0++; u1++;
+            for(int i = 0; i < n[0]; i++) {
+                for(int j = 0; j < n[1]; j++) {
+                    uxi[i][j] = dxix[i][j] * u[0][i][j] + dxiy[i][j] * u[1][i][j];
+                    uet[i][j] = dex[i][j] * u[0][i][j] + dey[i][j] * u[1][i][j];
                 }
             }
+
             // at solid boundary
             // cout << "Applying at solid boundary..." << endl;
             j = 0;
-            for (int i = 0; i < n[0] - 1; i++) {
-                int idx = i * STRIDE_I + j;
+            for(int i = 0; i < n[0] - 1; i++) {
 
-                double dp_dx = 0.0, dp_dy = 0.0;
+                for(int k = 0; k < 2; k++) {
+                    conv[k] = 0;
+                    d2u[k] = 0;
+                    alc[k] = 0;
 
-                for (int k = 0; k < 2; k++) {
-                    conv[k] = 0.0;
-                    d2u[k]  = 0.0;
-                    alc[k]  = 0.0;
+                    if (i == 0) {
+                        ipp = i + 1;
+                        inn = n[0] - 2;
+                    }
+                    else {
+                        ipp = i + 1;
+                        inn = i - 1;
+                    }
 
-                    inn = (i == 0) ? n[0] - 2 : i - 1;
-                    ipp = i + 1;
                     jpp = j + 1;
                     jpp2 = j + 2;
 
-                    int ipp_j  = ipp * STRIDE_I + j;
-                    int inn_j  = inn * STRIDE_I + j;
-                    int i_jpp  = i   * STRIDE_I + jpp;
-                    int i_jpp2 = i   * STRIDE_I + jpp2;
-
-                    int uk_ij    = (k==0) ? (i*STRIDE_I + j)         : (i*STRIDE_I + j + STRIDE_K);
-                    int uk_ipp_j = (k==0) ? (ipp_j)                  : (ipp_j + STRIDE_K);
-                    int uk_inn_j = (k==0) ? (inn_j)                  : (inn_j + STRIDE_K);
-                    int uk_i_jpp = (k==0) ? (i_jpp)                  : (i_jpp + STRIDE_K);
-                    int uk_i_jpp2= (k==0) ? (i_jpp2)                 : (i_jpp2 + STRIDE_K);
-
                     // diffusive
-                    double aa  = alph[idx]  * (u[uk_ipp_j] + u[uk_inn_j] - 2.0*u[uk_ij]) / (dxi[0]*dxi[0]);
-                    double gg  = gamma[idx] * (u[uk_i_jpp+1] + u[uk_ij] - 2.0*u[uk_i_jpp]) / (dxi[1]*dxi[1]); // (kept your original formula)
-                    double bb  = beta[idx]  * (u[ (k==0 ? (ipp*STRIDE_I + jpp) : (ipp*STRIDE_I + jpp + STRIDE_K)) ]
-                                            + u[uk_inn_j]
-                                            - u[ (k==0 ? (inn*STRIDE_I + jpp) : (inn*STRIDE_I + jpp + STRIDE_K)) ]
-                                            - u[uk_ipp_j]) / (2.0*dxi[0]*dxi[1]);
-                    double qqq = q1[idx]    * (-3.0*u[uk_ij] + 4.0*u[uk_i_jpp] - u[uk_i_jpp2]) / (2.0*dxi[1]);
+                    double aa = alph[i][j] * (u[k][ipp][j] + u[k][inn][j] - 2 * u[k][i][j]) / (dxi[0] * dxi[0]);
 
-                    d2u[k] = aa + gg - 2.0*bb + qqq;
+                    double gg = gamma[i][j] * (u[k][i][jpp+1] + u[k][i][j] - 2 * u[k][i][jpp]) / (dxi[1] * dxi[1]);
+
+                    double bb = beta[i][j] * (u[k][ipp][jpp] + u[k][inn][j] - u[k][inn][jpp] - u[k][ipp][j]) / 
+                            (2 * dxi[0] * dxi[1]);
+
+                    double qqq = q1[i][j] * (-3 * u[k][i][j] + 4 * u[k][i][jpp] - u[k][i][jpp2]) / (2 * dxi[1]);
+
+                    d2u[k] = aa + gg - 2 * bb + qqq;
 
                     // convective
-                    conv[k]  = uxi[idx] * 0.5 * (u[uk_ipp_j] - u[uk_inn_j]) / dxi[0];
-                    conv[k] += uet[idx]        * (u[uk_i_jpp] - u[uk_ij])   / dxi[1];
+                    conv[k] = uxi[i][j] * 0.5 * (u[k][ipp][j] - u[k][inn][j]) / dxi[0];
+                    
+                    conv[k] = conv[k] + uet[i][j] * (u[k][i][jpp] - u[k][i][j]) / dxi[1];
 
                     // local
-                    if (k == 0) {
-                        alc[k] =  accn_amp * sin(2.0 * Pi * F * time) * x[STRIDE_K + i*STRIDE_I + j]; // x[1][i][j]
-                    } else {
-                        alc[k] = -accn_amp * sin(2.0 * Pi * F * time) * x[i*STRIDE_I + j];            // x[0][i][j]
+                    if(k == 0) {
+                        alc[k] = accn_amp * sin(2.0 * Pi * F * time) * x[1][i][j];      // line edited
+                    }
+                    else {
+                        alc[k] = -accn_amp * sin(2.0 * Pi * F * time) * x[0][i][j];     // line edited
                     }
 
-                    if (k == 0) dp_dx = d2u[k]/Re - conv[k] - alc[k];
-                    if (k == 1) dp_dy = d2u[k]/Re - conv[k] - alc[k] + Ri * u[2*STRIDE_K + i*STRIDE_I + j];
+                    if (k == 0) dp_dx = 1.0 * d2u[k] / Re - conv[k] - alc[k];
+                    if (k == 1) dp_dy = 1.0 * d2u[k] / Re - conv[k] - alc[k] + Ri * u[2][i][j];
                 }
 
-                p[idx] = p[i*STRIDE_I + (j+1)]
-                    - ( dp_dx * (-dxiy[idx] * ajac[idx]) + dp_dy * (dxix[idx] * ajac[idx]) ) * dxi[1];
+                p[i][j] = p[i][j+1] - (dp_dx * (-dxiy[i][j] * ajac[i][j]) + dp_dy * (dxix[i][j] * ajac[i][j])) * dxi[1];
 
-                if (i == 0) p[(n[0]-1)*STRIDE_I + j] = p[idx];
+                if(i == 0) p[n[0] - 1][j] = p[i][j];
             }
 
             // at exit boundary
+            // cout << "Applying at exit boundary..." << endl;
             j = n[1] - 1;
-            for (int i = 0; i < n[0] - 1; i++) {
-                int idx = i * STRIDE_I + j;
 
+            for(int i = 0; i < n[0] - 1; i++) {
                 vnn = uinf * xnox[i] + vinf * xnoy[i];
-                if (vnn >= 0.0) {
-                    double dp_dx = 0.0, dp_dy = 0.0;
-
-                    for (int k = 0; k < 2; k++) {
-                        conv[k] = 0.0;
-                        d2u[k]  = 0.0;
-                        alc[k]  = 0.0;
+                if(vnn >= 0) {
+                    // -------------momentum equation----------------------------------
+                    for(int k = 0; k < 2; k++) {
+                        conv[k] = 0;
+                        d2u[k] = 0;
+                        alc[k] = 0;
 
                         ipp = i + 1;
-                        inn = (i == 0) ? n[0] - 2 : i - 1;
+                        inn = i - 1;
+                        if(i == 0) inn = n[0] - 2;
+
                         jnn = j - 1;
                         jnn2 = j - 2;
 
-                        int ipp_j   = ipp * STRIDE_I + j;
-                        int inn_j   = inn * STRIDE_I + j;
-                        int i_jnn   = i   * STRIDE_I + jnn;
-                        int ipp_jnn = ipp * STRIDE_I + jnn;
-                        int inn_jnn = inn * STRIDE_I + jnn;
-                        int i_jnn2  = i   * STRIDE_I + jnn2;
-
-                        int uk_ij     = (k==0) ? (i*STRIDE_I + j) : (i*STRIDE_I + j + STRIDE_K);
-                        int uk_ipp_j  = (k==0) ? (ipp_j) : (ipp_j + STRIDE_K);
-                        int uk_inn_j  = (k==0) ? (inn_j) : (inn_j + STRIDE_K);
-                        int uk_i_jnn  = (k==0) ? (i_jnn) : (i_jnn + STRIDE_K);
-                        int uk_ipp_jnn= (k==0) ? (ipp_jnn) : (ipp_jnn + STRIDE_K);
-                        int uk_inn_jnn= (k==0) ? (inn_jnn) : (inn_jnn + STRIDE_K);
-                        int uk_i_jnn2 = (k==0) ? (i_jnn2) : (i_jnn2 + STRIDE_K);
-
                         // diffusive
-                        double aa  = alph[idx]  * (u[uk_ipp_j] + u[uk_inn_j] - 2.0*u[uk_ij]) / (dxi[0]*dxi[0]);
-                        double gg  = gamma[idx] * (u[uk_ij] + u[uk_i_jnn-1] - 2.0*u[uk_i_jnn]) / (dxi[1]*dxi[1]);
-                        double bb  = beta[idx]  * (u[uk_ipp_j] + u[uk_inn_jnn] - u[uk_ipp_jnn] - u[uk_inn_j]) / (2.0*dxi[0]*dxi[1]);
-                        double qqq = q1[idx] * (3.0*u[uk_ij] - 4.0*u[uk_i_jnn] + u[uk_i_jnn2]) / (2.0*dxi[1]);
+                        double aa = alph[i][j] * (u[k][ipp][j] + u[k][inn][j] - 2 * u[k][i][j]) / (dxi[0] * dxi[0]);
 
-                        d2u[k] = aa + gg - 2.0*bb + qqq;
+                        double gg = gamma[i][j] * (u[k][i][j] + u[k][i][jnn-1] - 2 * u[k][i][jnn]) / (dxi[1] * dxi[1]);
+
+                        double bb = beta[i][j] * (u[k][ipp][j] + u[k][inn][jnn] - u[k][ipp][jnn] - u[k][inn][j]) / 
+                                (2 * dxi[0] * dxi[1]);
+
+                        double qqq = q1[i][j] * (3 * u[k][i][j] - 4 * u[k][i][jnn] + u[k][i][jnn2]) / (2 * dxi[1]);
+
+                        d2u[k] = aa + gg - 2 * bb + qqq;
 
                         // convective
-                        conv[k]  = uxi[idx] * 0.5 * (u[uk_ipp_j] - u[uk_inn_j]) / dxi[0];
-                        conv[k] += uet[idx] * (3.0*u[uk_ij] - 4.0*u[uk_i_jnn] + u[uk_i_jnn2]) / (2.0*dxi[1]);
+                        conv[k] = uxi[i][j] * 0.5 * (u[k][ipp][j] - u[k][inn][j]) / dxi[0];
+
+                        conv[k] = conv[k] + uet[i][j] * (3.0 * u[k][i][j] - 4 * u[k][i][jnn] + u[k][i][jnn2]) / (2 * dxi[1]);
 
                         // local
-                        alc[k] = (u[uk_ij] - uold[uk_ij]) / dt;
+                        alc[k] = (u[k][i][j] - uold[k][i][j]) / dt;
 
-                        if (k == 0) dp_dx = d2u[k]/Re - conv[k] - alc[k];
-                        if (k == 1) dp_dy = d2u[k]/Re - conv[k] - alc[k] + Ri * u[2*STRIDE_K + i*STRIDE_I + j];
-                    }
+                        if (k == 0) dp_dx = 1.0 * d2u[k] / Re - conv[k] - alc[k];
+                        if (k == 1) dp_dy = 1.0 * d2u[k] / Re - conv[k] - alc[k] + Ri * u[2][i][j];
+                    }   // k-loop
 
-                    p[idx] = p[i*STRIDE_I + (j-1)]
-                        + ( dp_dx * (-dxiy[idx] * ajac[idx]) + dp_dy * (dxix[idx] * ajac[idx]) ) * dxi[1];
-                } else {
-                    // Gresho
-                    p[idx] = 0.5 * (1.0/Re) * ( (3.0*uet[idx] - 4.0*uet[i*STRIDE_I + (j-1)] + uet[i*STRIDE_I + (j-2)]) / dxi[1] );
+                    p[i][j] = p[i][j-1] + (dp_dx * (-dxiy[i][j] * ajac[i][j]) + dp_dy * (dxix[i][j] * ajac[i][j])) * dxi[1];
+                }
+                else {
+                    // -------------gresho's condition---------------------------------
+                    p[i][j] = 0.5 * (1.0 / Re) * ((3 * uet[i][j] - 4 * uet[i][j-1] + uet[i][j-2]) / dxi[1]);
                 }
 
-                if (i == 0) p[(n[0]-1)*STRIDE_I + j] = p[idx];
+                if(i == 0) p[n[0] - 1][j] = p[i][j];
             }
+
             // ----------------------------------
             // -----calculation of si
             // ----------------------------------
             // cout << "Calculating si..." << endl;
             j = 0;
-            for (int i = 0; i < n[0]; i++) si[i*STRIDE_I + j] = 0.0;
+            for(int i = 0; i < n[0]; i++) {
+                si[i][j] = 0;
+            }
 
-            for (int i = 0; i < n[0]; i++) {
-                for (int jj = 1; jj < n[1]; jj++) {
-                    int idx    = i*STRIDE_I + jj;
-                    int idx_jm1= i*STRIDE_I + (jj-1);
+            for(int i = 0; i < n[0]; i++) {
+                for(int j = 1; j < n[1]; j++) {
+                    double ca = (dxix[i][j] * u[0][i][j] * fabs(ajac[i][j]) + dxix[i][j-1] * u[0][i][j-1] * fabs(ajac[i][j-1]));
+                    double cb = (dxiy[i][j] * u[1][i][j] * fabs(ajac[i][j]) + dxiy[i][j-1] * u[1][i][j-1] * fabs(ajac[i][j-1]));
 
-                    double ca = dxix[idx] * u[i*STRIDE_I + jj] * fabs(ajac[idx])
-                            + dxix[idx_jm1] * u[i*STRIDE_I + (jj-1)] * fabs(ajac[idx_jm1]);                 // u[0]
-                    double cb = dxiy[idx] * u[i*STRIDE_I + jj + STRIDE_K] * fabs(ajac[idx])
-                            + dxiy[idx_jm1] * u[i*STRIDE_I + (jj-1) + STRIDE_K] * fabs(ajac[idx_jm1]);              // u[1]
-
-                    si[idx] = si[idx_jm1] + (ca + cb) * 0.5 * dxi[1];
+                    si[i][j] = si[i][j-1] + (ca + cb) * 0.5 * dxi[1];
                 }
             }
 
             // ----------------------------
             // DILATION AND VORTICITY
             // ----------------------------
+            // cout << "Calculating dilation and vorticity..." << endl;
             dmax = 0.0;
-            for (int i = 0; i < n[0] - 1; i++) {
-                for (int jj = 1; jj < n[1] - 1; jj++) {
-                    int idx = i*STRIDE_I + jj;
-
-                    inn = (i == 0) ? n[0] - 2 : i - 1;
-                    ipp = i + 1;
-                    jpp = jj + 1;
-                    jnn = jj - 1;
-
-                    int ipp_j  = ipp*STRIDE_I + jj;
-                    int inn_j  = inn*STRIDE_I + jj;
-                    int i_jpp  = i*STRIDE_I + jpp;
-                    int i_jnn  = i*STRIDE_I + jnn;
-
-                    dil[idx] = dxix[idx] * (u[ipp_j] - u[inn_j]) / (2.0*dxi[0])      // u[0]
-                            + dex[idx] * (u[i_jpp] - u[i_jnn]) / (2.0*dxi[1])      // u[0]
-                            + dey[idx] * (u[i*STRIDE_I + jpp + STRIDE_K] - u[i*STRIDE_I + jnn + STRIDE_K]) / (2.0*dxi[1])  // u[1]
-                            + dxiy[idx] * (u[ipp_j + STRIDE_K] - u[inn_j + STRIDE_K]) / (2.0*dxi[0]);                        // u[1]
-
-                    double dv_dxi = 0.5 / dxi[0] * (u[ipp_j + STRIDE_K] - u[inn_j + STRIDE_K]);
-                    double dv_det = 0.5 / dxi[1] * (u[i*STRIDE_I + jpp + STRIDE_K] - u[i*STRIDE_I + jnn + STRIDE_K]);
-                    double dv_dx  = dxix[idx] * dv_dxi + dex[idx] * dv_det;
-
-                    double du_dxi = 0.5 / dxi[0] * (u[ipp_j] - u[inn_j]);
-                    double du_det = 0.5 / dxi[1] * (u[i_jpp] - u[i_jnn]);
-                    double du_dy  = dxiy[idx] * du_dxi + dey[idx] * du_det;
-
-                    vort[idx] = dv_dx - du_dy;
+            for(int i = 0; i < n[0] - 1; i++) {
+                for(int j = 1; j < n[1] - 1; j++) {
 
                     if (i == 0) {
-                        int idx_last = (n[0]-1)*STRIDE_I + jj;
-                        dil[idx_last]  = dil[idx];
-                        vort[idx_last] = vort[idx];
+                        inn = n[0] - 2;
+                        ipp = i + 1;
+                    }
+                    else {
+                        inn = i - 1;
+                        ipp = i + 1;
+                    }
+                    jpp = j + 1;
+                    jnn = j - 1;
+
+                    dil[i][j] = dxix[i][j] * (u[0][ipp][j] - u[0][inn][j]) / (2 * dxi[0]) + 
+                                dex[i][j] * (u[0][i][jpp] - u[0][i][jnn]) / (2 * dxi[1]) + 
+                                dey[i][j] * (u[1][i][jpp] - u[1][i][jnn]) / (2 * dxi[1]) + 
+                                dxiy[i][j] * (u[1][ipp][j] - u[1][inn][j]) / (2 * dxi[0]);
+                    // cout << fixed << setprecision(16);
+                    // cout <<"@ "<< dxix[i][j]<<" "<<u[0][ipp][j]<<" "<<u[0][inn][j]<<" "<<dxi[0]<< endl;
+                    // cout <<"# "<< dex[i][j]<<" "<<u[0][i][jpp]<<" "<<u[0][i][jnn]<<" "<<dxi[1]<< endl;
+                    // cout <<"$ "<< dey[i][j]<<" "<<u[1][i][jpp]<<" "<<u[1][i][jnn]<< endl;
+                    // cout <<"* "<< dxiy[i][j]<<" "<<u[1][ipp][j]<<" "<<u[1][inn][j]<< endl;
+
+                    double dv_dxi = 0.5 / dxi[0] * (u[1][ipp][j] - u[1][inn][j]);
+                    double dv_det = 0.5 / dxi[1] * (u[1][i][jpp] - u[1][i][jnn]);
+
+                    double dv_dx = dxix[i][j] * dv_dxi + dex[i][j] * dv_det;
+
+                    double du_dxi = 0.5 / dxi[0] * (u[0][ipp][j] - u[0][inn][j]);
+                    double du_det = 0.5 / dxi[1] * (u[0][i][jpp] - u[0][i][jnn]);
+
+                    double du_dy = dxiy[i][j] * du_dxi + dey[i][j] * du_det;
+
+                    vort[i][j] = dv_dx - du_dy;
+
+                    if (i == 0) {
+                        dil[n[0] - 1][j] = dil[i][j];
+                        vort[n[0] - 1][j] = vort[i][j];
                     }
 
-                    if (dil[idx] > dmax) dmax = dil[idx];
+                    if (dil[i][j] > dmax) {
+                        dmax = dil[i][j];
+                    }
                 }
             }
 
+            for(int j = 0; j < n[1]; j += n[1] - 1) {
+                for(int i = 0; i < n[0] - 1; i++) {
+                    if (i == 0) {
+                        inn = n[0] - 2;
+                        ipp = i + 1;
+                    }
+                    else {
+                        inn = i - 1;
+                        ipp = i + 1;
+                    }
+                    jpp = j + 1;
+                    jnn = j - 1;
 
-            for (int jj = 0; jj < n[1]; jj += n[1] - 1) {
-                for (int i = 0; i < n[0] - 1; i++) {
-                    int idx = i*STRIDE_I + jj;
-
-                    inn = (i == 0) ? n[0] - 2 : i - 1;
-                    ipp = i + 1;
-                    jpp = jj + 1;
-                    jnn = jj - 1;
-
-                    double dv_dxi = 0.5 / dxi[0] * (u[ipp*STRIDE_I + jj + STRIDE_K] - u[inn*STRIDE_I + jj + STRIDE_K]);
+                    double dv_dxi = 0.5 / dxi[0] * (u[1][ipp][j] - u[1][inn][j]);
                     double dv_det;
-                    if (jj == 0) dv_det = 1.0 / dxi[1] * (u[i*STRIDE_I + jpp + STRIDE_K] - u[i*STRIDE_I + jj + STRIDE_K]);
-                    if (jj == n[1]-1) dv_det = 1.0 / dxi[1] * (u[i*STRIDE_I + jj + STRIDE_K] - u[i*STRIDE_I + jnn + STRIDE_K]);
+                    if(j == 0) dv_det = 1.0 / dxi[1] * (u[1][i][jpp] - u[1][i][j]);
+                    if(j == n[1] - 1) dv_det = 1.0 / dxi[1] * (u[1][i][j] - u[1][i][jnn]);
 
-                    double dv_dx = dxix[idx] * dv_dxi + dex[idx] * dv_det;
+                    double dv_dx = dxix[i][j] * dv_dxi + dex[i][j] * dv_det;
 
-                    double du_dxi = 0.5 / dxi[0] * (u[ipp*STRIDE_I + jj] - u[inn*STRIDE_I + jj]);
+                    double du_dxi = 0.5 / dxi[0] * (u[0][ipp][j] - u[0][inn][j]);
                     double du_det;
-                    if (jj == 0)        du_det = 1.0 / dxi[1] * (u[i*STRIDE_I + jpp] - u[i*STRIDE_I + jj]);
-                    if (jj == n[1]-1)   du_det = 1.0 / dxi[1] * (u[i*STRIDE_I + jj] - u[i*STRIDE_I + jnn]);
+                    if(j == 0) du_det = 1.0 / dxi[1] * (u[0][i][jpp] - u[0][i][j]);
+                    if(j == n[1] - 1) du_det = 1.0 / dxi[1] * (u[0][i][j] - u[0][i][jnn]);
 
-                    double du_dy = dxiy[idx] * du_dxi + dey[idx] * du_det;
+                    double du_dy = dxiy[i][j] * du_dxi + dey[i][j] * du_det;
 
-                    vort[idx] = dv_dx - du_dy;
+                    vort[i][j] = dv_dx - du_dy;
 
-                    if (i == 0) vort[(n[0]-1)*STRIDE_I + jj] = vort[idx];
+                    if (i == 0) {
+                        vort[n[0] - 1][j] = vort[i][j];
+                    }
                 }
             }
 
@@ -2154,114 +1923,104 @@ public:
             // cout << "Calculating pressure and vorticity surface integrals for forces..." << endl;
             j = 0;
 
-            double pr_x = 0.0, pr_y = 0.0, vor_x = 0.0, vor_y = 0.0;
+            double pr_x = 0.0;
+            double pr_y = 0.0;
+            double vor_x = 0.0;
+            double vor_y = 0.0;
 
-            for (int i = 0; i < n[0] - 1; i++) {
+            for(int i = 0; i < n[0] - 1; i++) {
                 int ip = i + 1;
-                int i_j  = i  * STRIDE_I + j;
-                int ip_j = ip * STRIDE_I + j;
 
-                double PJ1 = p[i_j]  * ajac[i_j];
-                double PJ2 = p[ip_j] * ajac[ip_j];
+                double PJ1 = p[i][j] * ajac[i][j];
+                double pj2 = p[ip][j] * ajac[ip][j];
 
-                double VJ1 = vort[i_j]  * ajac[i_j];
-                double VJ2 = vort[ip_j] * ajac[ip_j];
+                double VJ1 = vort[i][j] * ajac[i][j];
+                double VJ2 = vort[ip][j] * ajac[ip][j];
 
-                double fp1_x = PJ1 * dex[i_j];
-                double fp2_x = PJ2 * dex[ip_j];
-                double fp1_y = PJ1 * dey[i_j];
-                double fp2_y = PJ2 * dey[ip_j];
+                double fp1_x = PJ1 * dex[i][j];
+                double fp2_x = pj2 * dex[ip][j];
 
-                double fv1_x = VJ1 * dey[i_j];
-                double fv2_x = VJ2 * dey[ip_j];
-                double fv1_y = VJ1 * dex[i_j];
-                double fv2_y = VJ2 * dex[ip_j];
+                double fp1_y = PJ1 * dey[i][j];
+                double fp2_y = pj2 * dey[ip][j];
 
-                pr_x += 0.5 * dxi[0] * (fp1_x + fp2_x);
-                pr_y += 0.5 * dxi[0] * (fp1_y + fp2_y);
+                double fv1_x = VJ1 * dey[i][j];
+                double fv2_x = VJ2 * dey[ip][j];
 
-                vor_x += 0.5 * dxi[0] * (fv1_x + fv2_x);
-                vor_y += 0.5 * dxi[0] * (fv1_y + fv2_y);
+                double fv1_y = VJ1 * dex[i][j];
+                double fv2_y = VJ2 * dex[ip][j];
+
+                pr_x = pr_x + 0.5 * dxi[0] * (fp1_x + fp2_x);
+                pr_y = pr_y + 0.5 * dxi[0] * (fp1_y + fp2_y);
+
+                vor_x = vor_x + 0.5 * dxi[0] * (fv1_x + fv2_x);
+                vor_y = vor_y + 0.5 * dxi[0] * (fv1_y + fv2_y);
             }
 
-            double cx = 2.0 * pr_x + (2.0/Re) * vor_x;
-            double cy = 2.0 * pr_y - (2.0/Re) * vor_y;
+            double cx = 2 * pr_x + (2.0 / Re) * vor_x;
+            double cy = 2 * pr_y - (2.0 / Re) * vor_y;
 
-            double CL_pr  =  2.0 * pr_y * sin(alpha * Pi / 180.0) - 2.0 * pr_x * cos(alpha * Pi / 180.0);
-            double CD_pr  =  2.0 * pr_y * cos(alpha * Pi / 180.0) + 2.0 * pr_x * sin(alpha * Pi / 180.0);
-            double CL_vor = -(2.0/Re) * vor_y * sin(alpha * Pi / 180.0) - (2.0/Re) * vor_x * cos(alpha * Pi / 180.0);
-            double CD_vor = -(2.0/Re) * vor_y * cos(alpha * Pi / 180.0) + (2.0/Re) * vor_x * sin(alpha * Pi / 180.0);
+            double CL_pr = 2 * pr_y * sin(alpha * Pi / 180.0) - 2 * pr_x * cos(alpha * Pi / 180.0);
+            double CD_pr = 2 * pr_y * cos(alpha * Pi / 180.0) + 2 * pr_x * sin(alpha * Pi / 180.0);
+            double CL_vor = -(2.0 / Re) * vor_y * sin(alpha * Pi / 180.0) - (2.0 / Re) * vor_x * cos(alpha * Pi / 180.0);
+            double CD_vor = -(2.0 / Re) * vor_y * cos(alpha * Pi / 180.0) + (2.0 / Re) * vor_x * sin(alpha * Pi / 180.0);
 
             double cl = cy * sin(alpha * Pi / 180.0) - cx * cos(alpha * Pi / 180.0);
             double cd = cy * cos(alpha * Pi / 180.0) + cx * sin(alpha * Pi / 180.0);
 
-            // moment & Nusselt terms
-            double press_i = 0.0, vor_i = 0.0, temp_i = 0.0;
+            // -------------------------------------------------------
+            // calculating surface pressure,vorticity and temp. integrals
+            // for moment coefficient and Nusselt number
+            // -------------------------------------------------------
+            // cout << "Calculating surface pressure, vorticity, and temperature integrals..." << endl;
+            double press_i = 0.0;
+            double vor_i = 0.0;
+            double temp_i = 0.0;
 
-            for (int i = 0; i < n[0] - 1; i++) {
+            for(int i = 0; i < n[0] - 1; i++) {
                 int ip = i + 1;
-                int i_j  = i  * STRIDE_I + j;
-                int ip_j = ip * STRIDE_I + j;
 
-                double PJ1 = p[i_j]  * ajac[i_j];
-                double PJ2 = p[ip_j] * ajac[ip_j];
+                double PJ1 = p[i][j] * ajac[i][j];
+                double pj2 = p[ip][j] * ajac[ip][j];
 
-                double VJ1 = vort[i_j]  * ajac[i_j];
-                double VJ2 = vort[ip_j] * ajac[ip_j];
+                double VJ1 = vort[i][j] * ajac[i][j];
+                double VJ2 = vort[ip][j] * ajac[ip][j];
 
-                double TJ1 = ajac[i_j]  * (dex[i_j]*dex[i_j] + dey[i_j]*dey[i_j]);
-                double TJ2 = ajac[ip_j] * (dex[ip_j]*dex[ip_j] + dey[ip_j]*dey[ip_j]);
+                double TJ1 = ajac[i][j] * (dex[i][j] * dex[i][j] + dey[i][j] * dey[i][j]);
+                double TJ2 = ajac[ip][j] * (dex[ip][j] * dex[ip][j] + dey[ip][j] * dey[ip][j]);
 
-                double fp1 = PJ1 * ( x[i*STRIDE_I + j] * dey[i_j] - x[STRIDE_K + i*STRIDE_I + j] * dex[i_j] );
-                double fp2 = PJ2 * ( x[ip*STRIDE_I + j] * dey[ip_j] - x[STRIDE_K + ip*STRIDE_I + j] * dex[ip_j] );
+                double fp1 = PJ1 * (x[0][i][j] * dey[i][j] - x[1][i][j] * dex[i][j]);
+                double fp2 = pj2 * (x[0][ip][j] * dey[ip][j] - x[1][ip][j] * dex[ip][j]);
 
-                double fv1 = VJ1 * ( x[i*STRIDE_I + j] * dex[i_j] + x[STRIDE_K + i*STRIDE_I + j] * dey[i_j] );
-                double fv2 = VJ2 * ( x[ip*STRIDE_I + j] * dex[ip_j] + x[STRIDE_K + ip*STRIDE_I + j] * dey[ip_j] );
+                double fv1 = VJ1 * (x[0][i][j] * dex[i][j] + x[1][i][j] * dey[i][j]);
+                double fv2 = VJ2 * (x[0][ip][j] * dex[ip][j] + x[1][ip][j] * dey[ip][j]);
 
-                double fh1 = TJ1 * ( 4.0*u[2*STRIDE_K + i*STRIDE_I + (j+1)]
-                                - 3.0*u[2*STRIDE_K + i*STRIDE_I + j]
-                                -       u[2*STRIDE_K + i*STRIDE_I + (j+2)] ) / (2.0*dxi[1]);
-                double fh2 = TJ2 * ( 4.0*u[2*STRIDE_K + ip*STRIDE_I + (j+1)]
-                                - 3.0*u[2*STRIDE_K + ip*STRIDE_I + j]
-                                -       u[2*STRIDE_K + ip*STRIDE_I + (j+2)] ) / (2.0*dxi[1]);
+                double fh1 = TJ1 * (4 * u[2][i][j+1] - 3 * u[2][i][j] - u[2][i][j+2]) / (2 * dxi[1]);
+                double fh2 = TJ2 * (4 * u[2][ip][j+1] - 3 * u[2][ip][j] - u[2][ip][j+2]) / (2 * dxi[1]);
 
-                press_i += 0.5 * dxi[0] * (fp1 + fp2);
-                vor_i += 0.5 * dxi[0] * (fv1 + fv2);
-                temp_i += 0.5 * (fh1 + fh2) * dxi[0];
+                press_i = press_i + 0.5 * dxi[0] * (fp1 + fp2);
+                vor_i = vor_i + 0.5 * dxi[0] * (fv1 + fv2);
+                temp_i = temp_i + 0.5 * (fh1 + fh2) * dxi[0];
             }
 
-            double cm = 2.0 * press_i - (2.0/Re) * vor_i;
-            double Nuss = (2.0 * temp_i) / ( Pi * ( 3.0*(1.0 + (1.0/ar)) - sqrt( (3.0 + (1.0/ar)) * ((3.0/ar) + 1.0) ) ) );
-
+            double cm = 2 * press_i - (2.0 / Re) * vor_i;
+            double Nuss = (2 * temp_i) / (Pi * (3 * (1 + (1.0 / ar)) - sqrt((3 + (1.0 / ar)) * ((3.0 / ar) + 1))));
+            
             // ----------------------------------------------------------
             // FILE WRITING
             // ----------------------------------------------------------
             // cout << "Writing output files..." << endl;
             if(loop % 100 == 0) {
+
                 ofstream file1("spt100.dat");
                 file1 << "zone" << endl;
                 file1 << "I=" << n[0] << endl;
                 file1 << "J=" << n[1] << endl;
                 
                 for(int j = 0; j < n[1]; j++) {
-                    int idx_base = j;
-                    int x0_base = j;
-                    int x1_base = j + STRIDE_K;
-                    int u0_base = j;
-                    int u1_base = j + STRIDE_K;
-                    int u2_base = j + 2*STRIDE_K;
-                    
                     for(int i = 0; i < n[0]; i++) {
-                        file1 << fixed << setprecision(9) << x[x0_base] << " " << x[x1_base] << " "
-                            << scientific << setprecision(13) << u[u0_base] << " " << u[u1_base] << " " 
-                            << u[u2_base] << " " << p[idx_base] << " " << si[idx_base] << " " << vort[idx_base] << endl;
-                        
-                        idx_base += STRIDE_I;
-                        x0_base += STRIDE_I;
-                        x1_base += STRIDE_I;
-                        u0_base += STRIDE_I;
-                        u1_base += STRIDE_I;
-                        u2_base += STRIDE_I;
+                        file1 << fixed << setprecision(9) << x[0][i][j] << " " << x[1][i][j] << " "
+                            << scientific << setprecision(13) << u[0][i][j] << " " << u[1][i][j] << " " 
+                            << u[2][i][j] << " " << p[i][j] << " " << si[i][j] << " " << vort[i][j] << endl;
                     }
                     file1 << endl;
                 }
@@ -2273,10 +2032,10 @@ public:
                 file2.write(reinterpret_cast<char*>(&dmax), sizeof(dmax));
                 
                 // Write arrays as binary data
-                file2.write(reinterpret_cast<char*>(x), 2 * np1 * np2 * sizeof(double));
-                file2.write(reinterpret_cast<char*>(si), np1 * np2 * sizeof(double));
-                file2.write(reinterpret_cast<char*>(u), 3 * np1 * np2 * sizeof(double));
-                file2.write(reinterpret_cast<char*>(p), np1 * np2 * sizeof(double));
+                file2.write(reinterpret_cast<char*>(x), sizeof(x));
+                file2.write(reinterpret_cast<char*>(si), sizeof(si));
+                file2.write(reinterpret_cast<char*>(u), sizeof(u));
+                file2.write(reinterpret_cast<char*>(p), sizeof(p));
                 file2.close();
 
                 ofstream file3("COEFF_HIS.dat", ios::app);
@@ -2288,25 +2047,17 @@ public:
                 file4 << fixed << setprecision(8) << time << " " << CL_pr << " " << CD_pr << " " 
                     << CL_vor << " " << CD_vor << endl;
                 file4.close();
+
                 // ================================================================
                 // local nusselt number profile on cylinder
                 // ================================================================
+                // cout << "Calculating local Nusselt number profile on cylinder..." << endl;
                 ofstream file5("SURF_DIST.dat");
-                int u2_base_0 = 2*STRIDE_K;        // u[2][i][0]
-                int u2_base_1 = 2*STRIDE_K + 1;    // u[2][i][1]
-                int u2_base_2 = 2*STRIDE_K + 2;    // u[2][i][2]
-                int idx_0 = 0;
-                
                 for(int i = 0; i < n[0]; i++) {
-                    double dthdn = -(4*u[u2_base_1] - 3*u[u2_base_0] - u[u2_base_2]) / (2*dxi[1]);
-                    dthdn = dthdn * sqrt(dex[idx_0]*dex[idx_0] + dey[idx_0]*dey[idx_0]);
+                    double dthdn = -(4 * u[2][i][1] - 3 * u[2][i][0] - u[2][i][2]) / (2 * dxi[1]);
+                    dthdn = dthdn * sqrt(dex[i][0] * dex[i][0] + dey[i][0] * dey[i][0]);
                     
-                    file5 << i*dxi[0] << " " << p[idx_0] << " " << vort[idx_0] << " " << dthdn << endl;
-                    
-                    u2_base_0 += STRIDE_I;
-                    u2_base_1 += STRIDE_I;
-                    u2_base_2 += STRIDE_I;
-                    idx_0 += STRIDE_I;
+                    file5 << i * dxi[0] << " " << p[i][0] << " " << vort[i][0] << " " << dthdn << endl;
                 }
                 file5.close();
             }
@@ -2317,23 +2068,13 @@ public:
 
                     if (nsnap == (maxsnap + 1)) continue;
 
-                    ofstream snap_file(filnam[nsnap-1]);
+                    ofstream snap_file(filnam[nsnap-1]);  // Adjust for 0-based array indexing
                     
                     for(int j = 0; j < n[1]; j++) {
-                        int idx_base = j;
-                        int x0_base = j;
-                        int x1_base = j + STRIDE_K;
-                        int u2_base = j + 2*STRIDE_K;
-                        
                         for(int i = 0; i < n[0]; i++) {
-                            snap_file << fixed << setprecision(9) << x[x0_base] << " " << x[x1_base] << " "
-                                    << scientific << setprecision(5) << si[idx_base] << " " 
-                                    << u[u2_base] << " " << vort[idx_base] << endl;
-                            
-                            idx_base += STRIDE_I;
-                            x0_base += STRIDE_I;
-                            x1_base += STRIDE_I;
-                            u2_base += STRIDE_I;
+                            snap_file << fixed << setprecision(9) << x[0][i][j] << " " << x[1][i][j] << " "
+                                    << scientific << setprecision(5) << si[i][j] << " " 
+                                    << u[2][i][j] << " " << vort[i][j] << endl;
                         }
                         snap_file << endl;
                     }
@@ -2343,298 +2084,394 @@ public:
                 }
             }
 
-        auto end = chrono::high_resolution_clock::now();
-        auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-        cout << "Time taken in Time Loop " << loop << ": " << duration.count() << " ms" << endl;
+            auto end = chrono::high_resolution_clock::now();
+            auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+            // start = chrono::high_resolution_clock::now();
+            cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms\n" << endl;
 
-        } 
-    } //END OF TIME LOOP 
-   
-    void sip9p(double *ap, double *ae, double *as, double *an, 
-        double *aw, double *ase, double *asw, double *ane, 
-        double *anw, double *phi, double *q) {
-
-        // Local arrays for SIP solver - contiguous allocation
-        int size = np1 * np2;
-        double *be = new double[size]();
-        double *bw = new double[size]();
-        double *bs = new double[size]();
-        double *bn = new double[size]();
-        double *bse = new double[size]();
-        double *bne = new double[size]();
-        double *bnw = new double[size]();
-        double *bsw = new double[size]();
-        double *bp = new double[size]();
-        double *qp = new double[size]();
-        double *del = new double[size]();
-
+        }
+        //END OF TIME LOOP
+    }
+    
+    void sip9p(double **ap, double **ae, double **as, double **an, 
+                double **aw, double **ase, double **asw, double **ane, 
+                double **anw, double **phi, double **q) {
+        
+        // Local arrays for SIP solver - also need dynamic allocation
+        double **be = allocate2D(np1, np2);
+        double **bw = allocate2D(np1, np2);
+        double **bs = allocate2D(np1, np2);
+        double **bn = allocate2D(np1, np2);
+        double **bse = allocate2D(np1, np2);
+        double **bne = allocate2D(np1, np2);
+        double **bnw = allocate2D(np1, np2);
+        double **bsw = allocate2D(np1, np2);
+        double **bp = allocate2D(np1, np2);
+        double **res = allocate2D(np1, np2);
+        double **qp = allocate2D(np1, np2);
+        double **del = allocate2D(np1, np2);
+        double **phio = allocate2D(np1, np2);
+        
         double tol = 0.75e-2;
         int maxiter = 100000;
         double alp = 0.92;
-        double sumnor = 0.0;
         
-        // Forward elimination - compute L and U matrices (only once)
-        for (int i = 0; i < n[0]-1; i++) {
-            int row_base = i * STRIDE_I + 1;
-            
-            int inn = (i == 0) ? n[0]-2 : i-1;
-            int row_inn = inn * STRIDE_I + 1;
-            int row_last = (n[0]-1) * STRIDE_I + 1;
-            
-            // Cache these for the j loop
-            double alp_bn_inn, alp_be_prev;
-            
-            for (int j = 1; j < n[1]-1; j++) {
-                bsw[row_base] = asw[row_base];
-                
-                // Precompute repeated terms
-                alp_bn_inn = alp * bn[row_inn];
-                alp_be_prev = alp * be[row_base - 1];
-                
-                bw[row_base] = (aw[row_base] + alp*anw[row_base] - bsw[row_base]*bn[row_inn - 1]) / 
-                        (1.0 + alp_bn_inn);
-                
-                bs[row_base] = (as[row_base] + alp*ase[row_base] - bsw[row_base]*be[row_inn - 1]) / 
-                        (1.0 + alp_be_prev);
-                
-                double ad = anw[row_base] + ase[row_base] - bs[row_base]*be[row_base - 1] - bw[row_base]*bn[row_inn];
-                
-                bp[row_base] = ap[row_base] - alp*ad - bs[row_base]*bn[row_base - 1] - bw[row_base]*be[row_inn] - 
-                        bsw[row_base]*bne[row_inn - 1];
-                
-                double inv_bp = 1.0 / bp[row_base];  // Precompute division
-                
-                bn[row_base] = (an[row_base] + alp*anw[row_base] - alp_bn_inn*bw[row_base] - 
-                        bw[row_base]*bne[row_inn]) * inv_bp;
-                
-                be[row_base] = (ae[row_base] + alp*ase[row_base] - alp_be_prev*bs[row_base] - 
-                        bs[row_base]*bne[row_base - 1]) * inv_bp;
-                
-                bne[row_base] = ane[row_base] * inv_bp;
-                
-                // Handle periodic boundary - only copy what's needed
-                if (i == 0) {
-                    bsw[row_last] = bsw[row_base];
-                    bn[row_last] = bn[row_base];
-                    bs[row_last] = bs[row_base];
-                    bne[row_last] = bne[row_base];
-                    be[row_last] = be[row_base];
-                    bw[row_last] = bw[row_base];
-                    bp[row_last] = bp[row_base];
-                }
-                
-                row_base++;
-                row_inn++;
-                row_last++;
+        // Initialize arrays
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
+                bsw[i][j] = 0.0;
+                bn[i][j] = 0.0;
+                bs[i][j] = 0.0;
+                bse[i][j] = 0.0;
+                bnw[i][j] = 0.0;
+                bne[i][j] = 0.0;
+                be[i][j] = 0.0;
+                bw[i][j] = 0.0;
+                bp[i][j] = 0.0;
             }
         }
-    
+        // Forward elimination - compute L and U matrices
+        for (int i = 0; i < n[0]-1; i++) {
+            for (int j = 1; j < n[1]-1; j++) {
+                int inn, ipp;
+                
+                if (i == 0) {
+                    inn = n[0]-2;
+                    ipp = i+1;
+                } else {
+                    inn = i-1;
+                    ipp = i+1;
+                }
+                
+                int jpp = j+1;
+                int jnn = j-1;
+                
+                bsw[i][j] = asw[i][j];
+                
+                bw[i][j] = (aw[i][j] + alp*anw[i][j] - bsw[i][j]*bn[inn][jnn]) / 
+                           (1.0 + alp*bn[inn][j]);
+                
+                bs[i][j] = (as[i][j] + alp*ase[i][j] - bsw[i][j]*be[inn][jnn]) / 
+                           (1.0 + alp*be[i][jnn]);
+                
+                double ad = anw[i][j] + ase[i][j] - bs[i][j]*be[i][jnn] - bw[i][j]*bn[inn][j];
+                
+                bp[i][j] = ap[i][j] - alp*ad - bs[i][j]*bn[i][jnn] - bw[i][j]*be[inn][j] - 
+                           bsw[i][j]*bne[inn][jnn];
+                
+                bn[i][j] = (an[i][j] + alp*anw[i][j] - alp*bw[i][j]*bn[inn][j] - 
+                           bw[i][j]*bne[inn][j]) / bp[i][j];
+                
+                be[i][j] = (ae[i][j] + alp*ase[i][j] - alp*bs[i][j]*be[i][jnn] - 
+                           bs[i][j]*bne[i][jnn]) / bp[i][j];
+                
+                bne[i][j] = ane[i][j] / bp[i][j];
+                
+                // Handle periodic boundary condition
+                if (i == 0) {
+                    bsw[n[0]-1][j] = bsw[i][j];
+                    bn[n[0]-1][j] = bn[i][j];
+                    bs[n[0]-1][j] = bs[i][j];
+                    bse[n[0]-1][j] = bse[i][j];
+                    bnw[n[0]-1][j] = bnw[i][j];
+                    bne[n[0]-1][j] = bne[i][j];
+                    be[n[0]-1][j] = be[i][j];
+                    bw[n[0]-1][j] = bw[i][j];
+                    bp[n[0]-1][j] = bp[i][j];
+                }
+            }
+        }
+        
+        // Initialize qp and del arrays
+        for (int i = 0; i < n[0]; i++) {
+            for (int j = 0; j < n[1]; j++) {
+                qp[i][j] = 0.0;
+                del[i][j] = 0.0;
+            }
+        }        
         // Main iteration loop
         for (int iter = 0; iter < maxiter; iter++) {
-            double ssum = 0.0;
             
-            // Combined forward sweep - compute residual and qp together
-            for (int i = 0; i < n[0]-1; i++) {
-                int row_base = i * STRIDE_I + 1;
-                
-                int inn = (i == 0) ? n[0]-2 : i-1;
-                int ipp = i+1;
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                int row_last = (n[0]-1) * STRIDE_I + 1;
-                
-                for (int j = 1; j < n[1]-1; j++) {
-                    // Compute residual directly (no array storage)
-                    double res = q[row_base] - ap[row_base]*phi[row_base] - 
-                            ae[row_base]*phi[row_ipp] - an[row_base]*phi[row_base + 1] - 
-                            as[row_base]*phi[row_base - 1] - aw[row_base]*phi[row_inn] - 
-                            anw[row_base]*phi[row_inn + 1] - ane[row_base]*phi[row_ipp + 1] - 
-                            asw[row_base]*phi[row_inn - 1] - ase[row_base]*phi[row_ipp - 1];
-                    
-                    ssum += fabs(res);
-                    
-                    // Forward substitution (using precomputed 1/bp would help here)
-                    qp[row_base] = (res - bs[row_base]*qp[row_base - 1] - 
-                            bw[row_base]*qp[row_inn] - bsw[row_base]*qp[row_inn - 1]) / bp[row_base];
-                    
-                    // Handle periodic boundary
-                    if (i == 0) {
-                        qp[row_last] = qp[row_base];
-                    }
-                    
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    row_last++;
+            // Store old phi values
+            for (int i = 0; i < n[0]; i++) {
+                for (int j = 0; j < n[1]; j++) {
+                    phio[i][j] = phi[i][j];
                 }
             }
             
-            // Compute sumnor only on first iteration
-            if (iter == 0) {
-                sumnor = (ssum != 0.0) ? ssum : 1.0;
+            double ssum = 0.0;
+            
+            // Forward sweep - compute residual and qp
+            for (int i = 0; i < n[0]-1; i++) {
+                for (int j = 1; j < n[1]-1; j++) {
+                    int inn, ipp;
+                    
+                    if (i == 0) {
+                        inn = n[0]-2;
+                        ipp = i+1;
+                    } else {
+                        inn = i-1;
+                        ipp = i+1;
+                    }
+                    
+                    int jpp = j+1;
+                    int jnn = j-1;
+                    
+                    // Compute residual
+                    res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
+                                an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
+                                aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
+                                ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
+                                ase[i][j]*phi[ipp][jnn];
+                    
+                    ssum += fabs(res[i][j]);
+                    // cout << ssum << endl;
+
+                    
+                    // Forward substitution
+                    qp[i][j] = (res[i][j] - bs[i][j]*qp[i][jnn] - bw[i][j]*qp[inn][j] - 
+                               bsw[i][j]*qp[inn][jnn]) / bp[i][j];
+                    
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        res[n[0]-1][j] = res[i][j];
+                        qp[n[0]-1][j] = qp[i][j];
+                    }
+                }
             }
             
-            double sumav = ssum / sumnor;
+            // Normalize residual for convergence check
+            double sumnor, sumav;
+            if (iter == 0) {
+                if (ssum != 0.0) {
+                    sumnor = ssum;
+                } else {
+                    sumnor = 1.0;
+                }
+            }
+            
+            // cout << "sumnor: " << sumnor << endl;
+            sumav = ssum / sumnor;
             
             // Backward sweep - update phi values
             for (int i = n[0]-2; i >= 0; i--) {
-                int row_base = i * STRIDE_I + n[1] - 2;
-                int ipp = i+1;
-                int row_ipp = ipp * STRIDE_I + n[1] - 2;
-                bool is_periodic = (i == 0);
-                int row_last = (n[0]-1) * STRIDE_I + n[1] - 2;
-                
                 for (int j = n[1]-2; j >= 1; j--) {
-                    // Backward substitution
-                    del[row_base] = qp[row_base] - bn[row_base]*del[row_base + 1] - 
-                            be[row_base]*del[row_ipp] - bne[row_base]*del[row_ipp + 1];
+                    int inn, ipp;
                     
-                    phi[row_base] += del[row_base];
-                    
-                    // Handle periodic boundary
-                    if (is_periodic) {
-                        phi[row_last] = phi[row_base];
+                    if (i == 0) {
+                        inn = n[0]-2;
+                        ipp = i+1;
+                    } else {
+                        inn = i-1;
+                        ipp = i+1;
                     }
                     
-                    row_base--;
-                    row_ipp--;
-                    row_last--;
+                    int jpp = j+1;
+                    int jnn = j-1;
+                    
+                    // Backward substitution
+                    del[i][j] = qp[i][j] - bn[i][j]*del[i][jpp] - be[i][j]*del[ipp][j] - 
+                                bne[i][j]*del[ipp][jpp];
+                    
+                    phi[i][j] = phi[i][j] + del[i][j];
+                    
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        phi[n[0]-1][j] = phi[i][j];
+                    }
                 }
             }
+
+            // cout << iter << " " << sumav << " " << tol << endl;
 
             // Check convergence
             if (sumav < tol) {
                 break;
-            }  
+            }
         }
         
         // Clean up local arrays
-        delete[] be; delete[] bw; delete[] bs; delete[] bn;
-        delete[] bse; delete[] bne; delete[] bnw; delete[] bsw;
-        delete[] bp; delete[] qp; delete[] del;
+        deallocate2D(be, np1);
+        deallocate2D(bw, np1);
+        deallocate2D(bs, np1);
+        deallocate2D(bn, np1);
+        deallocate2D(bse, np1);
+        deallocate2D(bne, np1);
+        deallocate2D(bnw, np1);
+        deallocate2D(bsw, np1);
+        deallocate2D(bp, np1);
+        deallocate2D(res, np1);
+        deallocate2D(qp, np1);
+        deallocate2D(del, np1);
+        deallocate2D(phio, np1);
     }
 
-    void gauss(double *ap, double *ae, double *as, double *an, 
-        double *aw, double *ase, double *asw, double *ane, 
-        double *anw, double *ass, double *assee, double *assww,
-        double *asse, double *assw, double *asee, double *asww,
-        double *ann, double *annee, double *annww, double *anne, 
-        double *annw, double *anee, double *anww, double *aee, 
-        double *aww, double *phi, double *q) {
-
+    void gauss(double **ap, double **ae, double **as, double **an, 
+               double **aw, double **ase, double **asw, double **ane, 
+               double **anw, double **ass, double **assee, double **assww,
+               double **asse, double **assw, double **asee, double **asww,
+               double **ann, double **annee, double **annww, double **anne, 
+               double **annw, double **anee, double **anww, double **aee, 
+               double **aww, double **phi, double **q) {
+        
+        double **res = allocate2D(np1, np2);
+        double **phio = allocate2D(np1, np2);
         double tol = 0.75e-2;
         int maxiter = 100000;
-        double sumnor = 0.0;
         
         for (int iter = 0; iter < maxiter; iter++) {
-            double ssum = 0.0;
             
-            // Combined residual computation and phi update in single pass
-            for (int i = 0; i < n[0]-1; i++) {
-                int row_base = i * STRIDE_I + 1;
-                
-                // Calculate neighbor indices ONCE per i
-                int inn = (i == 0) ? n[0]-2 : i-1;
-                int inn2 = (i <= 1) ? ((i == 0) ? n[0]-3 : n[0]-2) : i-2;
-                int ipp = i+1;
-                int ipp2 = (i == n[0]-2) ? 1 : i+2;
-                
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                int row_inn2 = inn2 * STRIDE_I + 1;
-                int row_ipp2 = ipp2 * STRIDE_I + 1;
-                int row_last = (n[0]-1) * STRIDE_I + 1;
-                
-                bool is_first_row = (i == 0);
-                
-                for (int j = 1; j < n[1]-1; j++) {
-                    double phi_new;
-                    double res;
-                    
-                    if (j == 1 || j == n[1]-2) {
-                        // Second order stencil
-                        // Common terms for both residual and update
-                        double rhs = q[row_base] - 
-                                ae[row_base]*phi[row_ipp] - 
-                                an[row_base]*phi[row_base + 1] - 
-                                as[row_base]*phi[row_base - 1] - 
-                                aw[row_base]*phi[row_inn] - 
-                                anw[row_base]*phi[row_inn + 1] - 
-                                ane[row_base]*phi[row_ipp + 1] - 
-                                asw[row_base]*phi[row_inn - 1] - 
-                                ase[row_base]*phi[row_ipp - 1];
-                        
-                        // Residual (includes current phi)
-                        res = rhs - ap[row_base]*phi[row_base];
-                        
-                        // New phi value
-                        phi_new = rhs / ap[row_base];
-                        
-                    } else {
-                        // Fourth order stencil
-                        // Common terms for both residual and update
-                        double rhs = q[row_base] - 
-                                ae[row_base]*phi[row_ipp] - 
-                                an[row_base]*phi[row_base + 1] - 
-                                as[row_base]*phi[row_base - 1] - 
-                                aw[row_base]*phi[row_inn] - 
-                                anw[row_base]*phi[row_inn + 1] - 
-                                ane[row_base]*phi[row_ipp + 1] - 
-                                asw[row_base]*phi[row_inn - 1] - 
-                                ase[row_base]*phi[row_ipp - 1] - 
-                                aee[row_base]*phi[row_ipp2] - 
-                                aww[row_base]*phi[row_inn2] - 
-                                annee[row_base]*phi[row_ipp2 + 2] - 
-                                anee[row_base]*phi[row_ipp2 + 1] - 
-                                asee[row_base]*phi[row_ipp2 - 1] - 
-                                assee[row_base]*phi[row_ipp2 - 2] - 
-                                anne[row_base]*phi[row_ipp + 2] - 
-                                asse[row_base]*phi[row_ipp - 2] - 
-                                annw[row_base]*phi[row_inn + 2] - 
-                                assw[row_base]*phi[row_inn - 2] - 
-                                annww[row_base]*phi[row_inn2 + 2] - 
-                                anww[row_base]*phi[row_inn2 + 1] - 
-                                asww[row_base]*phi[row_inn2 - 1] - 
-                                assww[row_base]*phi[row_inn2 - 2] - 
-                                ann[row_base]*phi[row_base + 2] - 
-                                ass[row_base]*phi[row_base - 2];
-                        
-                        // Residual (includes current phi)
-                        res = rhs - ap[row_base]*phi[row_base];
-                        
-                        // New phi value
-                        phi_new = rhs / ap[row_base];
-                    }
-                    
-                    ssum += fabs(res);
-                    phi[row_base] = phi_new;
-                    
-                    // Handle periodic boundary ONCE per j
-                    if (is_first_row) {
-                        phi[row_last] = phi_new;
-                    }
-                    
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    row_inn2++;
-                    row_ipp2++;
-                    row_last++;
+            // Store old phi values
+            for (int i = 0; i < n[0]; i++) {
+                for (int j = 0; j < n[1]; j++) {
+                    phio[i][j] = phi[i][j];
                 }
             }
             
-            // Compute sumnor only on first iteration
-            if (iter == 0) {
-                sumnor = (ssum != 0.0) ? ssum : 1.0;
+            double ssum = 0.0;
+            
+            // Compute residual
+            for (int i = 0; i < n[0]-1; i++) {
+                for (int j = 1; j < n[1]-1; j++) {
+                    int inn = i-1;
+                    int inn2 = i-2;
+                    int ipp = i+1;
+                    int ipp2 = i+2;
+                    
+                    int jpp = j+1;
+                    int jpp2 = j+2;
+                    int jnn = j-1;
+                    int jnn2 = j-2;
+                    
+                    // Handle periodic boundary conditions
+                    if (i == 0) {
+                        inn = n[0]-2;
+                        inn2 = n[0]-3;
+                    }
+                    
+                    if (i == 1) {
+                        inn2 = n[0]-2;
+                    }
+                    
+                    if (i == n[0]-2) {
+                        ipp2 = 1;
+                    }
+                    
+                    // Compute residual based on order
+                    if (j == 1 || j == n[1]-2) {
+                        // Second order stencil
+                        res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
+                                    an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
+                                    aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
+                                    ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
+                                    ase[i][j]*phi[ipp][jnn];
+                    } else {
+                        // Fourth order stencil
+                        res[i][j] = q[i][j] - ap[i][j]*phi[i][j] - ae[i][j]*phi[ipp][j] - 
+                                    an[i][j]*phi[i][jpp] - as[i][j]*phi[i][jnn] - 
+                                    aw[i][j]*phi[inn][j] - anw[i][j]*phi[inn][jpp] - 
+                                    ane[i][j]*phi[ipp][jpp] - asw[i][j]*phi[inn][jnn] - 
+                                    ase[i][j]*phi[ipp][jnn] - aee[i][j]*phi[ipp2][j] - 
+                                    aww[i][j]*phi[inn2][j] - annee[i][j]*phi[ipp2][jpp2] - 
+                                    anee[i][j]*phi[ipp2][jpp] - asee[i][j]*phi[ipp2][jnn] - 
+                                    assee[i][j]*phi[ipp2][jnn2] - anne[i][j]*phi[ipp][jpp2] - 
+                                    asse[i][j]*phi[ipp][jnn2] - annw[i][j]*phi[inn][jpp2] - 
+                                    assw[i][j]*phi[inn][jnn2] - annww[i][j]*phi[inn2][jpp2] - 
+                                    anww[i][j]*phi[inn2][jpp] - asww[i][j]*phi[inn2][jnn] - 
+                                    assww[i][j]*phi[inn2][jnn2] - ann[i][j]*phi[i][jpp2] - 
+                                    ass[i][j]*phi[i][jnn2];
+                    }
+                    
+                    ssum += fabs(res[i][j]);
+                    // cout << "Ssum: " << ssum << endl;
+
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        res[n[0]-1][j] = res[i][j];
+                    }
+                }
             }
             
-            double sumav = ssum / sumnor;
+            // Normalize residual for convergence check
+            double sumnor, sumav;
+            if (iter == 0) {
+                if (ssum != 0.0) {
+                    sumnor = ssum;
+                } else {
+                    sumnor = 1.0;
+                }
+            }
             
+            sumav = ssum / sumnor;
+            
+            // Update phi values using Gauss-Seidel
+            for (int i = 0; i < n[0]-1; i++) {
+                for (int j = 1; j < n[1]-1; j++) {
+                    int inn = i-1;
+                    int inn2 = i-2;
+                    int ipp = i+1;
+                    int ipp2 = i+2;
+                    
+                    int jpp = j+1;
+                    int jpp2 = j+2;
+                    int jnn = j-1;
+                    int jnn2 = j-2;
+                    
+                    // Handle periodic boundary conditions
+                    if (i == 0) {
+                        inn = n[0]-2;
+                        inn2 = n[0]-3;
+                    }
+                    
+                    if (i == 1) {
+                        inn2 = n[0]-2;
+                    }
+                    
+                    if (i == n[0]-2) {
+                        ipp2 = 1;
+                    }
+                    
+                    // Update phi based on order
+                    if (j == 1 || j == n[1]-2) {
+                        // Second order stencil
+                        phi[i][j] = (q[i][j] - ae[i][j]*phi[ipp][j] - an[i][j]*phi[i][jpp] - 
+                                    as[i][j]*phi[i][jnn] - aw[i][j]*phi[inn][j] - 
+                                    anw[i][j]*phi[inn][jpp] - ane[i][j]*phi[ipp][jpp] - 
+                                    asw[i][j]*phi[inn][jnn] - ase[i][j]*phi[ipp][jnn]) / ap[i][j];
+                    } else {
+                        // Fourth order stencil
+                        phi[i][j] = (q[i][j] - ae[i][j]*phi[ipp][j] - an[i][j]*phi[i][jpp] - 
+                                    as[i][j]*phi[i][jnn] - aw[i][j]*phi[inn][j] - 
+                                    anw[i][j]*phi[inn][jpp] - ane[i][j]*phi[ipp][jpp] - 
+                                    asw[i][j]*phi[inn][jnn] - ase[i][j]*phi[ipp][jnn] - 
+                                    aee[i][j]*phi[ipp2][j] - aww[i][j]*phi[inn2][j] - 
+                                    annee[i][j]*phi[ipp2][jpp2] - anee[i][j]*phi[ipp2][jpp] - 
+                                    asee[i][j]*phi[ipp2][jnn] - assee[i][j]*phi[ipp2][jnn2] - 
+                                    anne[i][j]*phi[ipp][jpp2] - asse[i][j]*phi[ipp][jnn2] - 
+                                    annw[i][j]*phi[inn][jpp2] - assw[i][j]*phi[inn][jnn2] - 
+                                    annww[i][j]*phi[inn2][jpp2] - anww[i][j]*phi[inn2][jpp] - 
+                                    asww[i][j]*phi[inn2][jnn] - assww[i][j]*phi[inn2][jnn2] - 
+                                    ann[i][j]*phi[i][jpp2] - ass[i][j]*phi[i][jnn2]) / ap[i][j];
+                    }
+                    
+                    // Handle periodic boundary condition
+                    if (i == 0) {
+                        phi[n[0]-1][j] = phi[i][j];
+                    }
+                }
+            }
+
+            // cout << "Iteration: " << iter << " " << sumav << " " << tol << endl;
+
             // Check convergence
             if (sumav < tol) {
                 break;
             }
         }
+        
+        // Clean up local arrays
+        deallocate2D(res, np1);
+        deallocate2D(phio, np1);
     }
 };
 

@@ -1,5 +1,5 @@
-// This is exact conversion of solver_1.cpp 
-// CPP -> CPP(Blitz++)
+// Exact conversion of solver_2.cpp 
+// CPP(Native Pointer Array) -> CPP(Blitz Arrays)
 
 #include <iostream>
 #include <fstream>

@@ -27,8 +27,8 @@ mkdir "$NEW_DIR"
 
 # Copy source file and INP.dat
 cp "$SOURCE_FILE" "$NEW_DIR/"
-if [ -f INP.dat ]; then
-    cp INP.dat "$NEW_DIR/"
+if [ -f INP.DAT ]; then
+    cp INP.DAT "$NEW_DIR/"
 else
     echo "Warning: INP.dat not found, skipping..."
 fi

@@ -1,5 +1,6 @@
-// Vectorized version of solver of solver_4.cpp
-// CPP(Blitz++) -> CPP(Blitz++ Vectorized)
+// This is exact conversion of solver_1.cpp 
+// CPP(Blitz Array) -> CPP(Blitz Array access with native Pointer)
+// Reduced function call overhead and Context Switch => Better Cache Performance
 
 #include <iostream>
 #include <fstream>
@@ -7,15 +8,21 @@
 #include <string>
 #include <iomanip>
 #include <chrono>
+#include <ctime>
 #include <blitz/array.h>
-
+using namespace std;
 int n[2];
-std::string INPUT_FILE = "INP.DAT";
+string INPUT_FILE = "INP.DAT";
 
 class Solver {
 public:
     static constexpr int np1 = 213; //350
     static constexpr int np2 = 420; //570
+    
+    // ADD THESE - calculate strides once for contiguous access
+    static constexpr int STRIDE_I = np2;              // 420
+    static constexpr int STRIDE_K = np1 * np2;        // 89,460
+    
     int snapshot_count;
 
     // 2D coefficient matrices (pressure equation) - converted to pointers
@@ -33,7 +40,7 @@ public:
     blitz::Array<double, 2> beta{np1, np2};
     blitz::Array<double, 2> gamma{np1, np2};
     
-    std::string resfile;
+    string filnam[100], resfile;
 
     // 2D velocity coefficient matrices (au* series)
     blitz::Array<double, 2> aue{np1, np2};
@@ -155,9 +162,7 @@ public:
     blitz::Array<double, 1> xnoet{np1};
     blitz::Array<double, 1> vdotn{np1};
     blitz::Array<double, 1> thi{np1};
-
     blitz::Array<double, 1> dxi{2};
-    blitz::Array<double, 3> d2u1{3, np1, np2};
 
     // SIP solver temporary arrays - reused across calls
     blitz::Array<double, 2> sip_be{np1, np2};
@@ -181,15 +186,15 @@ public:
     double Ri = 0.0;                                    // Richardson number
     double F = 0.0;                                     // Frequency
     double Pr = 0.71;                                   // Prandtl number
-    double Pi = std::acos(-1.0);                             // Pi constant
+    double Pi = acos(-1.0);                             // Pi constant
     double thetamax = Pi/12.0;                          // Maximum angle
     double speed_amp = thetamax * 2.0 * Pi * F;         // Speed amplitude
     double accn_amp = 2.0 * Pi * F * speed_amp;         // Acceleration amplitude
 
     // Flow conditions
     double alpha = 82.0;                                // Angle from gravity vector
-    double uinf = std::sin(alpha * Pi / 180.0);              // Free stream u-velocity
-    double vinf = std::cos(alpha * Pi / 180.0);              // Free stream v-velocity
+    double uinf = sin(alpha * Pi / 180.0);              // Free stream u-velocity
+    double vinf = cos(alpha * Pi / 180.0);              // Free stream v-velocity
     double Re = 1000.0;                                 // Reynolds number
     double ubar = 0.05;                                 // Characteristic velocity
     double dt = 0.01e-2;                                // Time step (0.0001)
@@ -208,38 +213,56 @@ public:
     double t_period, icycles, tstart, t_incr, i_loop, loop_snap, vnn, dmax;
 
     Solver() {
-        auto start = std::chrono::high_resolution_clock::now();
 
         // dummy variables
         int ic1, ic2, ic3, ic4, irem;
 
+        // auto start = chrono::high_resolution_clock::now();
+
+
         // Read input file and initialize variables
-        std::ifstream input_file(INPUT_FILE);
+        ifstream input_file(INPUT_FILE);
         if(!input_file) {
-            std::cerr << "Error opening input file: " << INPUT_FILE << std::endl;
+            cerr << "Error opening input file: " << INPUT_FILE << endl;
             return;
         }
-        // std::cout << "Input file opened successfully." << std::endl;
+        // cout << "Input file opened successfully." << endl;
 
         input_file >> n[0] >> n[1] >> dxi(0) >> dxi(1);
         input_file >> p_grid >> a_grid >> ar;
         input_file >> ic1 >> ic2 >> ic3 >> ic4;
 
+        double* x_data = x.data();
         for (int j = 0; j < n[1]; j++) {
+            int x0_base = j;
+            int x1_base = STRIDE_K + j;
+
             for (int i = 0; i < n[0]; i++) {
-                input_file >> aaa >> bbb >> x(0,i,j) >> x(1,i,j);
+                input_file >> aaa >> bbb >> x_data[x0_base] >> x_data[x1_base];
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
             }
         }
 
+        double* dxix_data = dxix.data();
+        double* dxiy_data = dxiy.data();
+        double* dex_data = dex.data();
+        double* dey_data = dey.data();
+
         for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
-                input_file >> dxix(i,j) >> dxiy(i,j) >> dex(i,j) >> dey(i,j);
+            int idx = j;  // Start at column j, row 0
+            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
+                input_file >> dxix_data[idx] >> dxiy_data[idx] >> dex_data[idx] >> dey_data[idx];
             }
         }
 
+        double* alph_data = alph.data();
+        double* beta_data = beta.data();
+        double* gamma_data = gamma.data();
         for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
-                input_file >> alph(i,j) >> beta(i,j) >> gamma(i,j);
+            int idx = j;
+            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
+                input_file >> alph_data[idx] >> beta_data[idx] >> gamma_data[idx];
             }
         }
 
@@ -249,106 +272,142 @@ public:
             }
         }
 
+        double* xnix_data = xnix.data();
+        double* xniy_data = xniy.data();
+        double* xnox_data = xnox.data();
+        double* xnoy_data = xnoy.data();
         for (int i = 0; i < n[0]; i++) {
-            input_file >> xnix(i) >> xniy(i) >> xnox(i) >> xnoy(i);
+            input_file >> xnix_data[i] >> xniy_data[i] >> xnox_data[i] >> xnoy_data[i];
         }
 
-        // vector operation load zeros
-        p1 = 0.0;
-        q1 = 0.0;
+        double* p1_data = p1.data();
+        double* q1_data = q1.data();
+
+        for (int j = 0; j < n[1]; j++) {
+            int idx = j;
+            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
+                p1_data[idx] = 0.0;
+                q1_data[idx] = 0.0;
+            }
+        }
+
+        for (int i = 0; i < maxsnap; i++) {
+            filnam[i] = "SNAP000.DAT";
+        }
+
+        int i3, i2, i1;
+        for (int k = 0; k < maxsnap; k++) {
+            i3 = k / 100;
+            i2 = (k - 100 * i3) / 10;
+            i1 = k - i2 * 10 - i3 * 100;
+            filnam[k][5] = '0' + i3;
+            filnam[k][6] = '0' + i2;
+            filnam[k][7] = '0' + i1;
+        }
 
         // --------------------------------------------------------
         // CALCULATING NXi AND Net AT OUTER AND INNER POINTS
         // --------------------------------------------------------
-        // std::cout << "Calculating NXi and Net at outer and inner points..." << std::endl;
+        // cout << "Calculating NXi and Net at outer and inner points..." << endl;
         // at inner first
+        double* xnixi_data = xnixi.data();
+        double* xniet_data = xniet.data();
         int j = 0;
-        xnixi = dxix(blitz::Range::all(),j) * xnix + dxiy(blitz::Range::all(),j) * xniy;
-        xniet = dex(blitz::Range::all(),j) * xnix + dey(blitz::Range::all(),j) * xniy;
-
-        j = n[1]-1;
-        xnoxi = dxix(blitz::Range::all(),j) * xnox + dxiy(blitz::Range::all(),j) * xnoy;
-        xnoet = dex(blitz::Range::all(),j) * xnox + dey(blitz::Range::all(),j) * xnoy;
-
-
-        std::ofstream bound_file("bound.dat");
-        for (int j = 0; j < n[1]; j+=n[1]-1) {
-            for (int i = 0; i < n[0]; i++) {
-                bound_file << i << " " << j << " " << x(0,i,j) << " " << x(1,i,j) << " " << " 1" << std::endl;
-            }
-            bound_file << std::endl; 
+        for (int i = 0; i < n[0]; i++) {
+            int idx = i * STRIDE_I + j;  // Calculate once
+            xnixi_data[i] = dxix_data[idx] * xnix_data[i] + dxiy_data[idx] * xniy_data[i];
+            xniet_data[i] = dex_data[idx] * xnix_data[i] + dey_data[idx] * xniy_data[i];
         }
-        bound_file.close();
+
+        double* xnoxi_data = xnoxi.data();
+        double* xnoet_data = xnoet.data();
+        j = n[1]-1;
+        for (int i = 0; i < n[0]; i++) {
+            int idx = i * STRIDE_I + j;
+            xnoxi_data[i] = dxix_data[idx] * xnox_data[i] + dxiy_data[idx] * xnoy_data[i];
+            xnoet_data[i] = dex_data[idx] * xnox_data[i] + dey_data[idx] * xnoy_data[i];
+        }
+
+        ofstream bound_file("bound.dat");
+        for (int j = 0; j < n[1]; j += n[1]-1) {
+            int x0_base = j;
+            int x1_base = STRIDE_K + j;
+            
+            for (int i = 0; i < n[0]; i++) {
+                bound_file << i << " " << j << " " << x_data[x0_base] << " " << x_data[x1_base] << " 1" << endl;
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
+            }
+            bound_file << endl;
+        }
 
         //-----------------------------------------------------
         // Applying Initial conditions
         //-----------------------------------------------------
-        // std::cout << "Applying initial conditions..." << std::endl;
+        // cout << "Applying initial conditions..." << endl;
         if (restart == 0) {
             loop = 1;
             time = 0;
+            double* u_data = u.data();
+            double* up_data = up.data();
+            double* uxi_data = uxi.data();
+            double* uet_data = uet.data();
+            double* p_data = p.data();
+            double* pcor_data = pcor.data();
+            double* si_data = si.data();
 
-            u(0,blitz::Range::all(),blitz::Range::all()) = uinf;
-            u(1,blitz::Range::all(),blitz::Range::all()) = vinf;
-            u(2,blitz::Range::all(),blitz::Range::all()) = 0.0;
+            for (int j = 0; j < n[1]; j++) {
+                int idx_2d = j;
+                int u0_base = j;
+                int u1_base = STRIDE_K + j;
+                int u2_base = 2*STRIDE_K + j;
+                int up0_base = j;
+                int up1_base = STRIDE_K + j;
+                
+                for (int i = 0; i < n[0]; i++) {
+                    u_data[u0_base] = uinf;
+                    u_data[u1_base] = vinf;
+                    u_data[u2_base] = 0.0;
 
-            uxi = 0.0;
-            uet = 0.0;
-            p = 0.0;
-            pcor = 0.0;
-            si = 0.0;
-
-            up(0,blitz::Range::all(),blitz::Range::all()) = uinf;
-            up(1,blitz::Range::all(),blitz::Range::all()) = vinf;
+                    uxi_data[idx_2d] = 0;
+                    uet_data[idx_2d] = 0;
+                    p_data[idx_2d] = 0;
+                    up_data[up0_base] = uinf;
+                    up_data[up1_base] = vinf;
+                    pcor_data[idx_2d] = 0;
+                    si_data[idx_2d] = 0;
+                    
+                    idx_2d += STRIDE_I;
+                    u0_base += STRIDE_I;
+                    u1_base += STRIDE_I;
+                    u2_base += STRIDE_I;
+                    up0_base += STRIDE_I;
+                    up1_base += STRIDE_I;
+                }
+            }
         } else {
-             std::ifstream restart_file("spa100.dat", std::ios::binary);
+            ifstream restart_file("spa100.dat", ios::binary);
             if (!restart_file) {
-                std::cerr << "Error opening restart file" << std::endl;
+                cerr << "Error opening restart file" << endl;
                 return;
             }
-            
+
+            double* x_data = x.data();
+            double* si_data = si.data();
+            double* u_data = u.data();
+            double* p_data = p.data();
+     
             restart_file.read(reinterpret_cast<char*>(&loop), sizeof(loop));
             restart_file.read(reinterpret_cast<char*>(&time), sizeof(time));
             restart_file.read(reinterpret_cast<char*>(&dmax), sizeof(dmax));
-            
-            // Read x array
-            for (int k = 0; k < 2; k++) {
-                for (int i = 0; i < n[0]; i++) {
-                    for (int j = 0; j < n[1]; j++) {
-                        restart_file.read(reinterpret_cast<char*>(&x(k,i,j)), sizeof(double));
-                    }
-                }
-            }
-            
-            // Read si array
-            for (int i = 0; i < n[0]; i++) {
-                for (int j = 0; j < n[1]; j++) {
-                    restart_file.read(reinterpret_cast<char*>(&si(i,j)), sizeof(double));
-                }
-            }
-            
-            // Read u array
-            for (int k = 0; k < 3; k++) {
-                for (int i = 0; i < n[0]; i++) {
-                    for (int j = 0; j < n[1]; j++) {
-                        restart_file.read(reinterpret_cast<char*>(&u(k,i,j)), sizeof(double));
-                    }
-                }
-            }
-            
-            // Read p array
-            for (int i = 0; i < n[0]; i++) {
-                for (int j = 0; j < n[1]; j++) {
-                    restart_file.read(reinterpret_cast<char*>(&p(i,j)), sizeof(double));
-                }
-            }
-            
-            restart_file.close();
+            restart_file.read(reinterpret_cast<char*>(x_data), 2 * np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(si_data), np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(u_data), 3 * np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(p_data), np1 * np2 * sizeof(double));
         }
 
         iiflag = 0;
         iflag = 0;
-        // dead code
         t_period = 100.0;
         if (iflag == 1) {
             icycles = time / t_period;
@@ -359,364 +418,465 @@ public:
             iflag = 0;
             iiflag = 1;
             nsnap = 1;
-            std::cout << tstart << " " << time << " " << loop_snap << " " << i_loop << " " << loop << std::endl;
+            cout << tstart << " " << time << " " << loop_snap << " " << i_loop << " " << loop << endl;
         }
+
         //c----------------------------------------------------
         //c       APPLYING BOUNDARY CONDITION
         //c---------setting boundary conditions----------------
         //c---------solid-fluid boundary
-        // std::cout << "Applying boundary conditions (solid-fluid boundary)..." << std::endl;
+        // cout << "Applying boundary conditions (solid-fluid boundary)..." << endl;
+        double* u_data = u.data();
+        double* up_data = up.data();
+
         j = 0;
-        blitz::Range I(0,n[0]-1);
+        for(int k=0; k<2; k++){
+            int uk_base = k * STRIDE_K + j;
+            
+            for(int i=0; i<n[0]; i++){
+                if(k == 0){
+                    u_data[uk_base] = -speed_amp * x_data[STRIDE_K + uk_base];  // x[1][i][j]
+                } else {
+                    u_data[uk_base] = speed_amp * x_data[uk_base - STRIDE_K];   // x[0][i][j]
+                }
+                up_data[uk_base] = u_data[uk_base];
+                uk_base += STRIDE_I;
+            }
+        }
 
-        u(0,I,j) = -speed_amp*x(1,I,j); 
-        u(1,I,j) = speed_amp*x(0,I,j); 
-        u(2,I,j) = 1.0;
+        double* aue_data = aue.data();
+        double* auw_data = auw.data();
+        double* aun_data = aun.data();
+        double* aus_data = aus.data();
+        double* aune_data = aune.data();
+        double* ause_data = ause.data();
+        double* ausw_data = ausw.data();
+        double* aunw_data = aunw.data();
+        double* aup_data = aup.data();
 
-        up(blitz::Range(0,1),I,j) = u(blitz::Range(0,1),I,j);
-        
+        double* aunn_data = aunn.data();
+        double* auss_data = auss.data();
+        double* auee_data = auee.data();
+        double* auww_data = auww.data();
+        double* aunnee_data = aunnee.data();
+        double* aunnww_data = aunnww.data();
+        double* aussee_data = aussee.data();
+        double* aussww_data = aussww.data();
+        double* aunne_data = aunne.data();
+        double* aunnw_data = aunnw.data();
+        double* ausse_data = ausse.data();
+        double* aussw_data = aussw.data();
+        double* aunee_data = aunee.data();
+        double* aunww_data = aunww.data();
+        double* ausee_data = ausee.data();
+        double* ausww_data = ausww.data();
+
+        double* ate_data = ate.data();
+        double* atw_data = atw.data();
+        double* atn_data = atn.data();
+        double* ats_data = ats.data();
+        double* atne_data = atne.data();
+        double* atse_data = atse.data();
+        double* atsw_data = atsw.data();
+        double* atnw_data = atnw.data();
+        double* atp_data = atp.data();
+
+        double* atnn_data = atnn.data();
+        double* atss_data = atss.data();
+        double* atee_data = atee.data();
+        double* atww_data = atww.data();
+        double* atnnee_data = atnnee.data();
+        double* atnnww_data = atnnww.data();
+        double* atssee_data = atssee.data();
+        double* atssww_data = atssww.data();
+        double* atnne_data = atnne.data();
+        double* atnnw_data = atnnw.data();
+        double* atsse_data = atsse.data();
+        double* atssw_data = atssw.data();
+        double* atnee_data = atnee.data();
+        double* atnww_data = atnww.data();
+        double* atsee_data = atsee.data();
+        double* atsww_data = atsww.data();
+
+        double* bus_data = bus.data();
+        double* buse_data = buse.data();
+        double* busw_data = busw.data();
+        double* bts_data = bts.data();
+        double* btse_data = btse.data();
+        double* btsw_data = btsw.data();
+        double* bun_data = bun.data();
+        double* bune_data = bune.data();
+        double* bunw_data = bunw.data();
+        double* btn_data = btn.data();
+        double* btne_data = btne.data();
+        double* btnw_data = btnw.data();
+
+        double* ae_data = ae.data();
+        double* aw_data = aw.data();
+        double* an_data = an.data();
+        double* as_data = as.data();
+        double* ane_data = ane.data();
+        double* ase_data = ase.data();
+        double* asw_data = asw.data();
+        double* anw_data = anw.data();
+        double* ap_data = ap.data();
+
         // ----------------------------------------------------
         // setting bc at infinity
         // ----------------------------------------------------
-        // std::cout << "Setting boundary conditions at infinity..." << std::endl;
+        // cout << "Setting boundary conditions at infinity..." << endl;
         j = n[1]-1;
-        jnn = j-1;
-        blitz::Array<double, 1> vnn(n[0]-1);
+        int u0_base = j;     // u[0][i][j]
+        int u1_base = STRIDE_K + j;  // u[1][i][j]
+        int u2_base = 2*STRIDE_K + j; // u[2][i][j]
+        int jnn = j-1;
+        int u0_base_jnn = jnn;  // u[0][i][jnn]
+        int u1_base_jnn = STRIDE_K + jnn;
+        int u2_base_jnn = 2*STRIDE_K + jnn;
 
-        vnn = u(0,blitz::Range(0,n[0]-2),j)*xnox(blitz::Range(0,n[0]-2)) +
-              u(1,blitz::Range(0,n[0]-2),j)*xnoy(blitz::Range(0,n[0]-2));
-
-        I = blitz::Range(0,n[0]-2);
-        u(0, I, j) = where(vnn(I)>=0, uinf, u(0, I, jnn));
-        u(1, I, j) = where(vnn(I)>=0, vinf, u(1, I, jnn));
-        u(2, I, j) = where(vnn(I)>=0, 0.0, u(2, I, jnn));
-
-        up(0, I, j) = where(vnn(I) >= 0, uinf, up(0, I, j));
-        up(1, I, j) = where(vnn(I) >= 0, vinf, up(1, I, j));
-
-        // continious boundary
-        u(blitz::Range::all(), n[0]-1, j) = u(blitz::Range::all(), 0, j);
+        for(int i=0; i<n[0]-1; i++){
+            vnn = u_data[u0_base]*xnox_data[i] + u_data[u1_base]*xnoy_data[i];
+            
+            if(vnn >= 0){
+                // inflow dirichlet conditions
+                u_data[u0_base] = uinf;
+                u_data[u1_base] = vinf;
+                u_data[u2_base] = 0.0;
+                up_data[u0_base] = uinf;
+                up_data[u1_base] = vinf;
+            }
+            else{
+                // Neuman condition
+                u_data[u0_base] = u_data[u0_base_jnn];
+                u_data[u1_base] = u_data[u1_base_jnn];
+                u_data[u2_base] = u_data[u2_base_jnn];
+                
+                if(i==0){
+                    int last_idx = (n[0]-1) * STRIDE_I + j;
+                    u_data[last_idx] = u_data[u0_base];  // u[0][n[0]-1][j]
+                    u_data[last_idx + STRIDE_K] = u_data[u1_base];  // u[1][n[0]-1][j]
+                    u_data[last_idx + 2*STRIDE_K] = u_data[u2_base]; // u[2][n[0]-1][j]
+                }
+            }
+            
+            // Increment all pointers for next i
+            u0_base += STRIDE_I;
+            u1_base += STRIDE_I;
+            u2_base += STRIDE_I;
+            u0_base_jnn += STRIDE_I;
+            u1_base_jnn += STRIDE_I;
+            u2_base_jnn += STRIDE_I;
+        }
 
         // forming coeff matrix for velocity
-        // std::cout << "Forming coefficient matrix for velocity..." << std::endl;
-        I = blitz::Range(0,n[0]-2);
-        j=1;
-        aue(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))+p1(I, j)/(2.0*dxi(0)))/Re;
-        auw(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))-p1(I, j)/(2.0*dxi(0)))/Re;
-        aun(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))+q1(I, j)/(2.0*dxi(1)))/Re;
-        aus(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))-q1(I, j)/(2.0*dxi(1)))/Re;
+        // cout << "Forming coefficient matrix for velocity..." << endl;
+        // forming coeff matrix for velocity
+        for(int i=0; i<n[0]-1; i++){
+            int row_base = i * STRIDE_I + 1;  // Start at j=1
+            int row_last = (n[0]-1) * STRIDE_I + 1;  // For periodic BC copy
+            
+            for(int j=1; j<n[1]-1; j++, row_base++, row_last++){
+                
+                if(j==1 || j==n[1]-2){
+                    // Second order scheme
+                    aue_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))+p1_data[row_base]/(2.0*dxi(0)))/Re;
+                    auw_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))-p1_data[row_base]/(2.0*dxi(0)))/Re;
+                    aun_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))+q1_data[row_base]/(2.0*dxi(1)))/Re;
+                    aus_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))-q1_data[row_base]/(2.0*dxi(1)))/Re;
 
-        aune(I, j) = dt*beta(I, j)/(2.0*dxi(0)*dxi(1)*Re);
-        ausw(I, j) = aune(I, j);
-        aunw(I, j) = -dt*beta(I, j)/(2.0*dxi(0)*dxi(1)*Re);
-        ause(I, j) = aunw(I, j);
-        aup(I, j) = 1+dt*2.0*(alph(I, j)/(dxi(0)*dxi(0))+gamma(I, j)/(dxi(1)*dxi(1)))/Re;
+                    aune_data[row_base] = dt*beta_data[row_base]/(2.0*dxi(0)*dxi(1)*Re);
+                    ausw_data[row_base] = aune_data[row_base];
+                    aunw_data[row_base] = -dt*beta_data[row_base]/(2.0*dxi(0)*dxi(1)*Re);
+                    ause_data[row_base] = aunw_data[row_base];
+                    aup_data[row_base] = 1+dt*2.0*(alph_data[row_base]/(dxi(0)*dxi(0))+gamma_data[row_base]/(dxi(1)*dxi(1)))/Re;
 
-        // coeff matrix for temperature
-        ate(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))+p1(I, j)/(2.0*dxi(0)))/(Re*Pr);
-        atw(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))-p1(I, j)/(2.0*dxi(0)))/(Re*Pr);
-        atn(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))+q1(I, j)/(2.0*dxi(1)))/(Re*Pr);
-        ats(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))-q1(I, j)/(2.0*dxi(1)))/(Re*Pr);
+                    // Temperature coefficients
+                    ate_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))+p1_data[row_base]/(2.0*dxi(0)))/(Re*Pr);
+                    atw_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))-p1_data[row_base]/(2.0*dxi(0)))/(Re*Pr);
+                    atn_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))+q1_data[row_base]/(2.0*dxi(1)))/(Re*Pr);
+                    ats_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))-q1_data[row_base]/(2.0*dxi(1)))/(Re*Pr);
 
-        atne(I, j) = dt*(beta(I, j)/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
-        atsw(I, j) = atne(I, j);
-        atnw(I, j) = -dt*(beta(I, j)/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
-        atse(I, j) = atnw(I, j);
-        atp(I, j) = 1+dt*2.0*(alph(I, j)/(dxi(0)*dxi(0))+gamma(I, j)/(dxi(1)*dxi(1)))/(Re*Pr);
+                    atne_data[row_base] = dt*(beta_data[row_base]/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
+                    atsw_data[row_base] = atne_data[row_base];
+                    atnw_data[row_base] = -dt*(beta_data[row_base]/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
+                    atse_data[row_base] = atnw_data[row_base];
+                    atp_data[row_base] = 1+dt*2.0*(alph_data[row_base]/(dxi(0)*dxi(0))+gamma_data[row_base]/(dxi(1)*dxi(1)))/(Re*Pr);
+                }
+                else{
+                    // Fourth order scheme
+                    aue_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))+(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
+                    auw_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))-(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
+                    aun_data[row_base]=(-dt)*((4.0*gamma_data[row_base])/(3.0*dxi(1)*dxi(1))+(2.0*q1_data[row_base])/(3.0*dxi(1)))/Re;
+                    aus_data[row_base]=(-dt)*((4.0*gamma_data[row_base])/(3.0*dxi(1)*dxi(1))-(2.0*q1_data[row_base])/(3.0*dxi(1)))/Re;
 
-        bus(I) = aus(I, j);
-        buse(I) = ause(I, j);
-        busw(I) = ausw(I, j);
-        bts(I) = ats(I, j);
-        btse(I) = atse(I, j);
-        btsw(I) = atsw(I, j);
+                    aune_data[row_base]=(-dt)*(-8.0*beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    aunw_data[row_base]=(-dt)*(8.0*beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    ause_data[row_base]=aunw_data[row_base];
+                    ausw_data[row_base]=aune_data[row_base];
 
-        aus(I, j) = 0;
-        ause(I, j) = 0;
-        ausw(I, j) = 0;
-        ats(I, j) = 0;
-        atse(I, j) = 0;
-        atsw(I, j) = 0;
+                    aunn_data[row_base]=(-dt)*(-gamma_data[row_base]/(12.0*dxi(1)*dxi(1))-q1_data[row_base]/(12.0*dxi(1)))/Re;
+                    auss_data[row_base]=(-dt)*(-gamma_data[row_base]/(12.0*dxi(1)*dxi(1))+q1_data[row_base]/(12.0*dxi(1)))/Re;
+                    auee_data[row_base]=(-dt)*(-alph_data[row_base]/(12.0*dxi(0)*dxi(0))-p1_data[row_base]/(12.0*dxi(0)))/Re;
+                    auww_data[row_base]=(-dt)*(-alph_data[row_base]/(12.0*dxi(0)*dxi(0))+p1_data[row_base]/(12.0*dxi(0)))/Re;
 
-        j=n[1]-2;
-        aue(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))+p1(I, j)/(2.0*dxi(0)))/Re;
-        auw(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))-p1(I, j)/(2.0*dxi(0)))/Re;
-        aun(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))+q1(I, j)/(2.0*dxi(1)))/Re;
-        aus(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))-q1(I, j)/(2.0*dxi(1)))/Re;
+                    aunnee_data[row_base]=(-dt)*(-beta_data[row_base]/(72.0*dxi(0)*dxi(1)))/Re;
+                    aunnww_data[row_base]=(-dt)*(beta_data[row_base]/(72.0*dxi(0)*dxi(1)))/Re;
+                    aussee_data[row_base]=aunnww_data[row_base];
+                    aussww_data[row_base]=aunnee_data[row_base];
 
-        aune(I, j) = dt*beta(I, j)/(2.0*dxi(0)*dxi(1)*Re);
-        ausw(I, j) = aune(I, j);
-        aunw(I, j) = -dt*beta(I, j)/(2.0*dxi(0)*dxi(1)*Re);
-        ause(I, j) = aunw(I, j);
-        aup(I, j) = 1+dt*2.0*(alph(I, j)/(dxi(0)*dxi(0))+gamma(I, j)/(dxi(1)*dxi(1)))/Re;
+                    aunne_data[row_base]=(-dt)*(beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    aunnw_data[row_base]=(-dt)*(-beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    ausse_data[row_base]=aunnw_data[row_base];
+                    aussw_data[row_base]=aunne_data[row_base];
 
-        // coeff matrix for temperature
-        ate(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))+p1(I, j)/(2.0*dxi(0)))/(Re*Pr);
-        atw(I, j) = -dt*(alph(I, j)/(dxi(0)*dxi(0))-p1(I, j)/(2.0*dxi(0)))/(Re*Pr);
-        atn(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))+q1(I, j)/(2.0*dxi(1)))/(Re*Pr);
-        ats(I, j) = -dt*(gamma(I, j)/(dxi(1)*dxi(1))-q1(I, j)/(2.0*dxi(1)))/(Re*Pr);
+                    aunee_data[row_base]=aunne_data[row_base];
+                    aunww_data[row_base]=aunnw_data[row_base];
+                    ausee_data[row_base]=aunnw_data[row_base];
+                    ausww_data[row_base]=aunne_data[row_base];
 
-        atne(I, j) = dt*(beta(I, j)/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
-        atsw(I, j) = atne(I, j);
-        atnw(I, j) = -dt*(beta(I, j)/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
-        atse(I, j) = atnw(I, j);
-        atp(I, j) = 1+dt*2.0*(alph(I, j)/(dxi(0)*dxi(0))+gamma(I, j)/(dxi(1)*dxi(1)))/(Re*Pr);
+                    aup_data[row_base]=1+dt*(5.0*alph_data[row_base]/(2.0*dxi(0)*dxi(0))+5.0*gamma_data[row_base]/(2.0*dxi(1)*dxi(1)))/Re;
 
-        bun(I) = aun(I, j);
-        bune(I) = aune(I, j);
-        bunw(I) = aunw(I, j);
-        btn(I) = atn(I, j);
-        btne(I) = atne(I, j);
-        btnw(I) = atnw(I, j);
+                    // Temperature (just divide velocity coeffs by Pr)
+                    ate_data[row_base]=aue_data[row_base]/Pr;
+                    atw_data[row_base]=auw_data[row_base]/Pr;
+                    atn_data[row_base]=aun_data[row_base]/Pr;
+                    ats_data[row_base]=aus_data[row_base]/Pr;
+                    atne_data[row_base]=aune_data[row_base]/Pr;
+                    atnw_data[row_base]=aunw_data[row_base]/Pr;
+                    atse_data[row_base]=ause_data[row_base]/Pr;
+                    atsw_data[row_base]=ausw_data[row_base]/Pr;
+                    atnn_data[row_base]=aunn_data[row_base]/Pr;
+                    atss_data[row_base]=auss_data[row_base]/Pr;
+                    atee_data[row_base]=auee_data[row_base]/Pr;
+                    atww_data[row_base]=auww_data[row_base]/Pr;
+                    atnnee_data[row_base]=aunnee_data[row_base]/Pr;
+                    atnnww_data[row_base]=aunnww_data[row_base]/Pr;
+                    atssee_data[row_base]=aussee_data[row_base]/Pr;
+                    atssww_data[row_base]=aussww_data[row_base]/Pr;
+                    atnne_data[row_base]=aunne_data[row_base]/Pr;
+                    atnnw_data[row_base]=aunnw_data[row_base]/Pr;
+                    atsse_data[row_base]=ausse_data[row_base]/Pr;
+                    atssw_data[row_base]=aussw_data[row_base]/Pr;
+                    atnee_data[row_base]=aunee_data[row_base]/Pr;
+                    atnww_data[row_base]=aunww_data[row_base]/Pr;
+                    atsee_data[row_base]=ausee_data[row_base]/Pr;
+                    atsww_data[row_base]=ausww_data[row_base]/Pr;
+                    atp_data[row_base]=1+dt*(5.0*alph_data[row_base]/(2.0*dxi(0)*dxi(0))+5.0*gamma_data[row_base]/(2.0*dxi(1)*dxi(1)))/(Re*Pr);
+                }
 
-        aun(I, j) = 0;
-        aune(I, j) = 0;
-        aunw(I, j) = 0;
-        atn(I, j) = 0;
-        atne(I, j) = 0;
-        atnw(I, j) = 0;
+                // Boundary coefficient storage
+                if(j==1){
+                    bus_data[i]=aus_data[row_base];
+                    buse_data[i]=ause_data[row_base];
+                    busw_data[i]=ausw_data[row_base];
+                    bts_data[i]=ats_data[row_base];
+                    btse_data[i]=atse_data[row_base];
+                    btsw_data[i]=atsw_data[row_base];
 
-        blitz::Range J(2,n[1]-3);
-        // Fourth Order Coff Matrix for Velocity
-        aue(I, J) = (-dt)*((4.0*alph(I, J))/(3.0*dxi(0)*dxi(0))+(2.0*p1(I, J))/(3.0*dxi(0)))/Re;
-        auw(I, J) = (-dt)*((4.0*alph(I, J))/(3.0*dxi(0)*dxi(0))-(2.0*p1(I, J))/(3.0*dxi(0)))/Re;
-        aun(I, J) = (-dt)*((4.0*gamma(I, J))/(3.0*dxi(1)*dxi(1))+(2.0*q1(I, J))/(3.0*dxi(1)))/Re;
-        aus(I, J) = (-dt)*((4.0*gamma(I, J))/(3.0*dxi(1)*dxi(1))-(2.0*q1(I, J))/(3.0*dxi(1)))/Re;
+                    aus_data[row_base]=0;
+                    ause_data[row_base]=0;
+                    ausw_data[row_base]=0;
+                    ats_data[row_base]=0;
+                    atse_data[row_base]=0;
+                    atsw_data[row_base]=0;
+                }
+                
+                if(j==n[1]-2){
+                    bun_data[i]=aun_data[row_base];
+                    bune_data[i]=aune_data[row_base];
+                    bunw_data[i]=aunw_data[row_base];
+                    btn_data[i]=atn_data[row_base];
+                    btne_data[i]=atne_data[row_base];
+                    btnw_data[i]=atnw_data[row_base];
 
-        aune(I, J) = (-dt)*(-8.0*beta(I, J)/(9.0*dxi(0)*dxi(1)))/Re;
-        aunw(I, J) = (-dt)*(8.0*beta(I, J)/(9.0*dxi(0)*dxi(1)))/Re;
-        ause(I, J) = aunw(I, J);
-        ausw(I, J) = aune(I, J);
+                    aun_data[row_base]=0;
+                    aune_data[row_base]=0;
+                    aunw_data[row_base]=0;
+                    atn_data[row_base]=0;
+                    atne_data[row_base]=0;
+                    atnw_data[row_base]=0;
+                }
 
-        aunn(I, J) = (-dt)*(-gamma(I, J)/(12.0*dxi(1)*dxi(1))-q1(I, J)/(12.0*dxi(1)))/Re;
-        auss(I, J) = (-dt)*(-gamma(I, J)/(12.0*dxi(1)*dxi(1))+q1(I, J)/(12.0*dxi(1)))/Re;
-        auee(I, J) = (-dt)*(-alph(I, J)/(12.0*dxi(0)*dxi(0))-p1(I, J)/(12.0*dxi(0)))/Re;
-        auww(I, J) = (-dt)*(-alph(I, J)/(12.0*dxi(0)*dxi(0))+p1(I, J)/(12.0*dxi(0)))/Re;
+                // Periodic BC - copy to last row
+                if(i==0){
+                    aue_data[row_last]=aue_data[row_base];
+                    auw_data[row_last]=auw_data[row_base];
+                    aun_data[row_last]=aun_data[row_base];
+                    aus_data[row_last]=aus_data[row_base];
+                    aune_data[row_last]=aune_data[row_base];
+                    ause_data[row_last]=ause_data[row_base];
+                    ausw_data[row_last]=ausw_data[row_base];
+                    aunw_data[row_last]=aunw_data[row_base];
+                    aup_data[row_last]=aup_data[row_base];
 
-        aunnee(I, J) = (-dt)*(beta(I, J)/(18.0*dxi(0)*dxi(1)))/Re;
-        aunnww(I, J) = (-dt)*(-beta(I, J)/(18.0*dxi(0)*dxi(1)))/Re;
-        aussee(I, J) = aunnee(I, J);
-        aussww(I, J) = aunnww(I, J);
+                    aunn_data[row_last]=aunn_data[row_base];
+                    aunnee_data[row_last]=aunnee_data[row_base];
+                    aunnww_data[row_last]=aunnww_data[row_base];
+                    aunne_data[row_last]=aunne_data[row_base];
+                    aunnw_data[row_last]=aunnw_data[row_base];
+                    aunee_data[row_last]=aunee_data[row_base];
+                    aunww_data[row_last]=aunww_data[row_base];
+                    auss_data[row_last]=auss_data[row_base];
+                    aussee_data[row_last]=aussee_data[row_base];
+                    aussww_data[row_last]=aussww_data[row_base];
+                    ausse_data[row_last]=ausse_data[row_base];
+                    aussw_data[row_last]=aussw_data[row_base];
+                    ausee_data[row_last]=ausee_data[row_base];
+                    ausww_data[row_last]=ausww_data[row_base];
+                    auee_data[row_last]=auee_data[row_base];
+                    auww_data[row_last]=auww_data[row_base];
 
-        aunne(I, J) = (-dt)*(beta(I, J)/9.0*dxi(0)*dxi(1))/Re;
-        aunnw(I, J) = (-dt)*(-beta(I, J)/9.0*dxi(0)*dxi(1))/Re;
-        ausse(I, J) = aunnw(I, J);
-        aussw(I, J) = aunne(I, J);
+                    ate_data[row_last]=ate_data[row_base];
+                    atw_data[row_last]=atw_data[row_base];
+                    atn_data[row_last]=atn_data[row_base];
+                    ats_data[row_last]=ats_data[row_base];
+                    atne_data[row_last]=atne_data[row_base];
+                    atse_data[row_last]=atse_data[row_base];
+                    atsw_data[row_last]=atsw_data[row_base];
+                    atnw_data[row_last]=atnw_data[row_base];
+                    atp_data[row_last]=atp_data[row_base];
 
-        aunee(I, J) = aunne(I, J);
-        aunww(I, J) = aunnw(I, J);
-        ausee(I, J) = aunnw(I, J);
-        ausww(I, J) = aunne(I, J);
-
-        aup(I, J) = 1+dt*(5.0*alph(I,J)/(2.0*dxi(0)*dxi(0))+5.0*gamma(I, J)/(2.0*dxi(1)*dxi(1)))/Re;
-        
-        // Fourth Order Coff Matrix for Temperature
-        ate(I, J) = aue(I, J)/Pr;
-        atw(I, J) = auw(I, J)/Pr;
-        atn(I, J) = aun(I, J)/Pr;
-        ats(I, J) = aus(I, J)/Pr;
-        atne(I, J) = aune(I, J)/Pr;
-        atnw(I, J) = aunw(I, J)/Pr;
-        atse(I, J) = ause(I, J)/Pr;
-        atsw(I, J) = ausw(I, J)/Pr;
-        atnn(I, J) = aunn(I, J)/Pr;
-        atss(I, J) = auss(I, J)/Pr;
-        atee(I, J) = auee(I, J)/Pr;
-        atww(I, J) = auww(I, J)/Pr;
-        atnnee(I, J) = aunnee(I, J)/Pr;
-        atnnww(I, J) = aunnww(I, J)/Pr;
-        atssee(I, J) = aussee(I, J)/Pr;
-        atssww(I, J) = aussww(I, J)/Pr;
-        atnne(I, J) = aunne(I, J)/Pr;
-        atnnw(I, J) = aunnw(I, J)/Pr;
-        atsse(I, J) = ausse(I, J)/Pr;
-        atssw(I, J) = aussw(I, J)/Pr;
-        atnee(I, J) = aunee(I, J)/Pr;
-        atnww(I, J) = aunww(I, J)/Pr;
-        atsee(I, J) = ausee(I, J)/Pr;
-        atsww(I, J) = ausww(I, J)/Pr;
-        atp(I, J) = 1+dt*(5.0*alph(I,J)/(2.0*dxi(0)*dxi(0))+5.0*gamma(I, J)/(2.0*dxi(1)*dxi(1)))/(Re*Pr);
-
-        // Forming a matrix for Pressure
-        // std::cout << "Forming matrix for pressure..." << std::endl;
-        // Forming a matrix for Pressure
-        double factor_00 = dxi(0) * dxi(0);
-        double factor_01 = dxi(0) * dxi(1);
-        double factor_11 = dxi(1) * dxi(1);
-        double pxi = 1.0 / (2.0 * factor_00);
-        double pet = 1.0 / (2.0 * factor_11);
-
-        // Process i=1 to n[0]-2 (main region) - fully vectorized
-        I = blitz::Range(1, n[0]-2);
-        J = blitz::Range(1, n[1]-2);
-
-        // EAST COMPONENT (I+1,J)
-        ae(I,J) = (dxix(I,J)/(2.0*factor_00)) * (dxix(I,J) + dxix(I+1,J))
-                + (dex(I,J)/(8.0*factor_01)) * (dxix(I,J+1) - dxix(I,J-1))
-                + (dxiy(I,J)/(2.0*factor_00)) * (dxiy(I,J) + dxiy(I+1,J))
-                + (dey(I,J)/(8.0*factor_01)) * (dxiy(I,J+1) - dxiy(I,J-1));
-
-        // WEST COMPONENT (I-1,J)
-        aw(I,J) = (dxix(I,J)/(2.0*factor_00)) * (dxix(I,J) + dxix(I-1,J))
-                + (dex(I,J)/(8.0*factor_01)) * (dxix(I,J-1) - dxix(I,J+1))
-                + (dxiy(I,J)/(2.0*factor_00)) * (dxiy(I,J) + dxiy(I-1,J))
-                + (dey(I,J)/(8.0*factor_01)) * (dxiy(I,J-1) - dxiy(I,J+1));
-
-        // NORTH COMPONENT (I,J+1)
-        an(I,J) = (dxix(I,J)/(8.0*factor_01)) * (dex(I+1,J) - dex(I-1,J))
-                + (dex(I,J)/(2.0*factor_11)) * (dex(I,J) + dex(I,J+1))
-                + (dxiy(I,J)/(8.0*factor_01)) * (dey(I+1,J) - dey(I-1,J))
-                + (dey(I,J)/(2.0*factor_11)) * (dey(I,J) + dey(I,J+1));
-
-        // SOUTH COMPONENT (I,J-1)
-        as(I,J) = (dxix(I,J)/(8.0*factor_01)) * (dex(I-1,J) - dex(I+1,J))
-                + (dex(I,J)/(2.0*factor_11)) * (dex(I,J) + dex(I,J-1))
-                + (dxiy(I,J)/(8.0*factor_01)) * (dey(I-1,J) - dey(I+1,J))
-                + (dey(I,J)/(2.0*factor_11)) * (dey(I,J) + dey(I,J-1));
-
-        // NORTH-EAST COMPONENT (I+1,J+1)
-        ane(I,J) = (dxix(I,J)/(8.0*factor_01)) * (dex(I,J) + dex(I+1,J))
-                + (dex(I,J)/(8.0*factor_01)) * (dxix(I,J) + dxix(I,J+1))
-                + (dxiy(I,J)/(8.0*factor_01)) * (dey(I,J) + dey(I+1,J))
-                + (dey(I,J)/(8.0*factor_01)) * (dxiy(I,J) + dxiy(I,J+1));
-
-        // SOUTH-WEST COMPONENT (I-1,J-1)
-        asw(I,J) = (dxix(I,J)/(8.0*factor_01)) * (dex(I,J) + dex(I-1,J))
-                + (dex(I,J)/(8.0*factor_01)) * (dxix(I,J) + dxix(I,J-1))
-                + (dxiy(I,J)/(8.0*factor_01)) * (dey(I,J) + dey(I-1,J))
-                + (dey(I,J)/(8.0*factor_01)) * (dxiy(I,J) + dxiy(I,J-1));
-
-        // NORTH-WEST COMPONENT (I-1,J+1)
-        anw(I,J) = -(dxix(I,J)/(8.0*factor_01)) * (dex(I,J) + dex(I-1,J))
-                - (dex(I,J)/(8.0*factor_01)) * (dxix(I,J) + dxix(I,J+1))
-                - (dxiy(I,J)/(8.0*factor_01)) * (dey(I,J) + dey(I-1,J))
-                - (dey(I,J)/(8.0*factor_01)) * (dxiy(I,J) + dxiy(I,J+1));
-
-        // SOUTH-EAST COMPONENT (I+1,J-1)
-        ase(I,J) = -(dxix(I,J)/(8.0*factor_01)) * (dex(I,J) + dex(I+1,J))
-                - (dex(I,J)/(8.0*factor_01)) * (dxix(I,J) + dxix(I,J-1))
-                - (dxiy(I,J)/(8.0*factor_01)) * (dey(I,J) + dey(I+1,J))
-                - (dey(I,J)/(8.0*factor_01)) * (dxiy(I,J) + dxiy(I,J-1));
-
-        // NODE ITSELF P
-        ap(I,J) = pxi * (-dxix(I,J) * (2.0*dxix(I,J) + dxix(I-1,J) + dxix(I+1,J)))
-                + pet * (-dex(I,J) * (2.0*dex(I,J) + dex(I,J-1) + dex(I,J+1)))
-                + pxi * (-dxiy(I,J) * (2.0*dxiy(I,J) + dxiy(I-1,J) + dxiy(I+1,J)))
-                + pet * (-dey(I,J) * (2.0*dey(I,J) + dey(I,J-1) + dey(I,J+1)));
-
-        // Process i=0 (periodic boundary) - fully vectorized
-        int inn = n[0] - 2;
-        int ipp = 1;
-        J = blitz::Range(1, n[1]-2);
-
-        ae(0,J) = (dxix(0,J)/(2.0*factor_00)) * (dxix(0,J) + dxix(ipp,J))
-                + (dex(0,J)/(8.0*factor_01)) * (dxix(0,J+1) - dxix(0,J-1))
-                + (dxiy(0,J)/(2.0*factor_00)) * (dxiy(0,J) + dxiy(ipp,J))
-                + (dey(0,J)/(8.0*factor_01)) * (dxiy(0,J+1) - dxiy(0,J-1));
-
-        aw(0,J) = (dxix(0,J)/(2.0*factor_00)) * (dxix(0,J) + dxix(inn,J))
-                + (dex(0,J)/(8.0*factor_01)) * (dxix(0,J-1) - dxix(0,J+1))
-                + (dxiy(0,J)/(2.0*factor_00)) * (dxiy(0,J) + dxiy(inn,J))
-                + (dey(0,J)/(8.0*factor_01)) * (dxiy(0,J-1) - dxiy(0,J+1));
-
-        an(0,J) = (dxix(0,J)/(8.0*factor_01)) * (dex(ipp,J) - dex(inn,J))
-                + (dex(0,J)/(2.0*factor_11)) * (dex(0,J) + dex(0,J+1))
-                + (dxiy(0,J)/(8.0*factor_01)) * (dey(ipp,J) - dey(inn,J))
-                + (dey(0,J)/(2.0*factor_11)) * (dey(0,J) + dey(0,J+1));
-
-        as(0,J) = (dxix(0,J)/(8.0*factor_01)) * (dex(inn,J) - dex(ipp,J))
-                + (dex(0,J)/(2.0*factor_11)) * (dex(0,J) + dex(0,J-1))
-                + (dxiy(0,J)/(8.0*factor_01)) * (dey(inn,J) - dey(ipp,J))
-                + (dey(0,J)/(2.0*factor_11)) * (dey(0,J) + dey(0,J-1));
-
-        ane(0,J) = (dxix(0,J)/(8.0*factor_01)) * (dex(0,J) + dex(ipp,J))
-                + (dex(0,J)/(8.0*factor_01)) * (dxix(0,J) + dxix(0,J+1))
-                + (dxiy(0,J)/(8.0*factor_01)) * (dey(0,J) + dey(ipp,J))
-                + (dey(0,J)/(8.0*factor_01)) * (dxiy(0,J) + dxiy(0,J+1));
-
-        asw(0,J) = (dxix(0,J)/(8.0*factor_01)) * (dex(0,J) + dex(inn,J))
-                + (dex(0,J)/(8.0*factor_01)) * (dxix(0,J) + dxix(0,J-1))
-                + (dxiy(0,J)/(8.0*factor_01)) * (dey(0,J) + dey(inn,J))
-                + (dey(0,J)/(8.0*factor_01)) * (dxiy(0,J) + dxiy(0,J-1));
-
-        anw(0,J) = -(dxix(0,J)/(8.0*factor_01)) * (dex(0,J) + dex(inn,J))
-                - (dex(0,J)/(8.0*factor_01)) * (dxix(0,J) + dxix(0,J+1))
-                - (dxiy(0,J)/(8.0*factor_01)) * (dey(0,J) + dey(inn,J))
-                - (dey(0,J)/(8.0*factor_01)) * (dxiy(0,J) + dxiy(0,J+1));
-
-        ase(0,J) = -(dxix(0,J)/(8.0*factor_01)) * (dex(0,J) + dex(ipp,J))
-                - (dex(0,J)/(8.0*factor_01)) * (dxix(0,J) + dxix(0,J-1))
-                - (dxiy(0,J)/(8.0*factor_01)) * (dey(0,J) + dey(ipp,J))
-                - (dey(0,J)/(8.0*factor_01)) * (dxiy(0,J) + dxiy(0,J-1));
-
-        ap(0,J) = pxi * (-dxix(0,J) * (2.0*dxix(0,J) + dxix(inn,J) + dxix(ipp,J)))
-                + pet * (-dex(0,J) * (2.0*dex(0,J) + dex(0,J-1) + dex(0,J+1)))
-                + pxi * (-dxiy(0,J) * (2.0*dxiy(0,J) + dxiy(inn,J) + dxiy(ipp,J)))
-                + pet * (-dey(0,J) * (2.0*dey(0,J) + dey(0,J-1) + dey(0,J+1)));
-
-        // Copy i=0 to i=n[0]-1 (periodic boundary)
-        ae(n[0]-1,J) = ae(0,J);
-        aw(n[0]-1,J) = aw(0,J);
-        an(n[0]-1,J) = an(0,J);
-        as(n[0]-1,J) = as(0,J);
-        ane(n[0]-1,J) = ane(0,J);
-        asw(n[0]-1,J) = asw(0,J);
-        anw(n[0]-1,J) = anw(0,J);
-        ase(n[0]-1,J) = ase(0,J);
-        ap(n[0]-1,J) = ap(0,J);
-
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        std::cout << "Time taken in Constructor: " << duration.count() << " ms\n" << std::endl;
-
-    }
-
-    // Add this helper function to your Solver class
-    blitz::Array<double, 3> broadcast_to_3d(const blitz::Array<double, 2> &arr2d, int k_size)
-    {
-        int ni = arr2d.extent(0);
-        int nj = arr2d.extent(1);
-
-        blitz::Array<double, 3> arr3d(k_size, ni, nj);
-
-        for (int k = 0; k < k_size; k++)
-        {
-            arr3d(k, blitz::Range::all(), blitz::Range::all()) = arr2d;
-        }
-
-        return arr3d;
-    }
-
-    void export_array_2d(const std::string& filename, const blitz::Array<double, 2>& arr, 
-                     int loop_num, const std::string& varname) {
-        std::ofstream file(filename, std::ios::app);
-        file << "LOOP=" << loop_num << " VAR=" << varname << "\n";
-        file << std::scientific << std::setprecision(16);
-        
-        for(int j = 0; j < arr.extent(1); j++) {
-            for(int i = 0; i < arr.extent(0); i++) {
-                file << i << " " << j << " " << arr(i,j) << "\n";
-            }
-        }
-        file << "\n";
-        file.close();
-    }
-
-    void export_array_3d(const std::string& filename, const blitz::Array<double, 3>& arr,
-                        int loop_num, const std::string& varname) {
-        std::ofstream file(filename, std::ios::app);
-        file << "LOOP=" << loop_num << " VAR=" << varname << "\n";
-        file << std::scientific << std::setprecision(16);
-        
-        for(int i = 0; i < arr.extent(1); i++) {
-            for(int j = 0; j < arr.extent(2); j++) {
-                for(int k = 0; k < arr.extent(0); k++) {
-                    file << k << " " << i << " " << j << " " << arr(k,i,j) << "\n";
+                    atnn_data[row_last]=atnn_data[row_base];
+                    atnnee_data[row_last]=atnnee_data[row_base];
+                    atnnww_data[row_last]=atnnww_data[row_base];
+                    atnne_data[row_last]=atnne_data[row_base];
+                    atnnw_data[row_last]=atnnw_data[row_base];
+                    atnee_data[row_last]=atnee_data[row_base];
+                    atnww_data[row_last]=atnww_data[row_base];
+                    atss_data[row_last]=atss_data[row_base];
+                    atssee_data[row_last]=atssee_data[row_base];
+                    atssww_data[row_last]=atssww_data[row_base];
+                    atsse_data[row_last]=atsse_data[row_base];
+                    atssw_data[row_last]=atssw_data[row_base];
+                    atsee_data[row_last]=atsee_data[row_base];
+                    atsww_data[row_last]=atsww_data[row_base];
+                    atee_data[row_last]=atee_data[row_base];
+                    atww_data[row_last]=atww_data[row_base];
                 }
             }
         }
-        file << "\n";
-        file.close();
+ 
+        // Forming a matrix for Pressure
+        // cout << "Forming matrix for pressure..." << endl;
+        for(int i=0; i<n[0]-1; i++) {
+            int row_base = i * STRIDE_I + 1;  // Start at j=1
+            
+            // Neighbor rows
+            int inn = (i == 0) ? n[0]-2 : i-1;
+            int ipp = i+1;
+            int row_inn = inn * STRIDE_I + 1;
+            int row_ipp = ipp * STRIDE_I + 1;
+            int row_last = (n[0]-1) * STRIDE_I + 1;
+            
+            for(int j=1; j<n[1]-1; j++) {
+                // All indices are just increments - no multiplication!
+                double dxix_ij = dxix_data[row_base];
+                double dxiy_ij = dxiy_data[row_base];
+                double dex_ij = dex_data[row_base];
+                double dey_ij = dey_data[row_base];
+
+                // Neighbors: just +/- 1 or +/- STRIDE_I
+                double dxix_e = dxix_data[row_ipp];
+                double dxix_w = dxix_data[row_inn];
+                double dxix_n = dxix_data[row_base + 1];
+                double dxix_s = dxix_data[row_base - 1];
+
+                double dxiy_e = dxiy_data[row_ipp];
+                double dxiy_w = dxiy_data[row_inn];
+                double dxiy_n = dxiy_data[row_base + 1];
+                double dxiy_s = dxiy_data[row_base - 1];
+
+                double dex_e = dex_data[row_ipp];
+                double dex_w = dex_data[row_inn];
+                double dex_n = dex_data[row_base + 1];
+                double dex_s = dex_data[row_base - 1];
+
+                double dey_e = dey_data[row_ipp];
+                double dey_w = dey_data[row_inn];
+                double dey_n = dey_data[row_base + 1];
+                double dey_s = dey_data[row_base - 1];
+
+                // EAST COMPONENT
+                ae_data[row_base] = (dxix_ij/(2.0*dxi(0)*dxi(0)))*(dxix_ij + dxix_e)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_n - dxix_s)
+                            + (dxiy_ij/(2.0*dxi(0)*dxi(0)))*(dxiy_ij + dxiy_e)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_n - dxiy_s);
+
+                // WEST COMPONENT
+                aw_data[row_base] = (dxix_ij/(2.0*dxi(0)*dxi(0)))*(dxix_ij + dxix_w)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_s - dxix_n)
+                            + (dxiy_ij/(2.0*dxi(0)*dxi(0)))*(dxiy_ij + dxiy_w)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_s - dxiy_n);
+
+                // NORTH COMPONENT
+                an_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_e - dex_w)
+                            + (dex_ij/(2.0*dxi(1)*dxi(1)))*(dex_ij + dex_n)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_e - dey_w)
+                            + (dey_ij/(2.0*dxi(1)*dxi(1)))*(dey_ij + dey_n);
+
+                // SOUTH COMPONENT
+                as_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_w - dex_e)
+                            + (dex_ij/(2.0*dxi(1)*dxi(1)))*(dex_ij + dex_s)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_w - dey_e)
+                            + (dey_ij/(2.0*dxi(1)*dxi(1)))*(dey_ij + dey_s);
+
+                // NORTH EAST
+                ane_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_e)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_n)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_e)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_n);
+
+                // SOUTH WEST
+                asw_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_w)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_s)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_w)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_s);
+
+                // NORTH WEST
+                anw_data[row_base] = -(dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_w)
+                            - (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_n)
+                            - (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_w)
+                            - (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_n);
+
+                // SOUTH EAST
+                ase_data[row_base] = -(dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_e)
+                            - (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_s)
+                            - (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_e)
+                            - (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_s);
+
+                // CENTER (P)
+                double pxi = 1.0/(2.0*dxi(0)*dxi(0));
+                double pet = 1.0/(2.0*dxi(1)*dxi(1));
+                ap_data[row_base] = pxi * (-dxix_ij * (2.0*dxix_ij + dxix_w + dxix_e))
+                            + pet * (-dex_ij * (2.0*dex_ij + dex_s + dex_n))
+                            + pxi * (-dxiy_ij * (2.0*dxiy_ij + dxiy_w + dxiy_e))
+                            + pet * (-dey_ij * (2.0*dey_ij + dey_s + dey_n));
+
+                // Periodic BC
+                if (i == 0) {
+                    ae_data[row_last] = ae_data[row_base];
+                    aw_data[row_last] = aw_data[row_base];
+                    an_data[row_last] = an_data[row_base];
+                    as_data[row_last] = as_data[row_base];
+                    ane_data[row_last] = ane_data[row_base];
+                    ase_data[row_last] = ase_data[row_base];
+                    asw_data[row_last] = asw_data[row_base];
+                    anw_data[row_last] = anw_data[row_base];
+                    ap_data[row_last] = ap_data[row_base];
+                }
+                
+                // Increment all for next j
+                row_base++;
+                row_inn++;
+                row_ipp++;
+                row_last++;
+            }
+        }
+
+        // auto end = chrono::high_resolution_clock::now();
+        // auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+        // cout << "Time taken in Constructor: " << duration.count() << " ms" << endl;
+
     }
 
     int inn2, ipp2, jnn2, jpp2;
@@ -724,1360 +884,1269 @@ public:
         //----------------------------------------------------------
         //START OF TIME LOOP
         //----------------------------------------------------------
+        // cout << "Starting time loop..." << endl;
+
+        // auto start = chrono::high_resolution_clock::now();
+
+        double d2u[3];
+        double conv[3];
+        double alc[3];
         
-        auto start = std::chrono::high_resolution_clock::now();
-        
+        double* u_data = u.data();
+        double* up_data = up.data();
+        double* uold_data = uold.data();
+        double* uxi_data = uxi.data();
+        double* uet_data = uet.data();
+        double* dxix_data = dxix.data();
+        double* dxiy_data = dxiy.data();
+        double* dex_data = dex.data();
+        double* dey_data = dey.data();
+        double* alph_data = alph.data();
+        double* gamma_data = gamma.data();
+        double* p_data = p.data();
+        double* qu_data = qu.data();
+        double* qv_data = qv.data();
+        double* qt_data = qt.data();
+        double* qup_data = qup.data();
+        double* qvp_data = qvp.data();
+        double* bus_data = bus.data();
+        double* buse_data = buse.data();
+        double* busw_data = busw.data();
+        double* bts_data = bts.data();
+        double* btse_data = btse.data();
+        double* btsw_data = btsw.data();
+        double* bun_data = bun.data();
+        double* bune_data = bune.data();
+        double* bunw_data = bunw.data();
+        double* btn_data = btn.data();
+        double* btne_data = btne.data();
+        double* btnw_data = btnw.data();
+        double* sol_data = sol.data();
+        double* us_data = us.data();
+        double* pcor_data = pcor.data();
+        double* q_data = q.data();
+        double* xnox_data = xnox.data();
+        double* xnoy_data = xnoy.data();
+        double* dxi_data = dxi.data();
+        double* vr_data = vr.data();
+        double* vth_data = vth.data();
+        double* x_data = x.data();
+        double* ajac_data = ajac.data();
+        double* beta_data = beta.data();
+        double* q1_data = q1.data();
+        double* si_data = si.data();
+        double* dil_data = dil.data();
+        double* vort_data = vort.data();
+
         // Outer loop
         for(loop=0;loop<MAXSTEP;loop++){
             time = time + dt;
             // Flow Field inside domain
             // U in xi and eta
-            
-            blitz::Range I(0,n[0]-1);
-            blitz::Range J(0,n[1]-1);
-            
-            // Flow Field inside domain
-            // U in xi and eta
-            uxi(I,J) = dxix(I,J)*u(0,I,J)+dxiy(I,J)*u(1,I,J);
-            uet(I,J) = dex(I,J)*u(0,I,J)+dey(I,J)*u(1,I,J);
-            uold(2,I,J) = u(2,I,J);
+            // cout << "Calculating flow field inside domain (U in xi and eta)..." << endl;
+            for(int i=0; i<n[0]; i++){
+                int idx_base = i * STRIDE_I;
+                int u0_base = idx_base;
+                int u1_base = idx_base + STRIDE_K;
+                int u2_base = idx_base + 2*STRIDE_K;
+                
+                for(int j=0; j<n[1]; j++){
+                    uxi_data[idx_base] = dxix_data[idx_base]*u_data[u0_base] + dxiy_data[idx_base]*u_data[u1_base];
+                    uet_data[idx_base] = dex_data[idx_base]*u_data[u0_base] + dey_data[idx_base]*u_data[u1_base];
+                    uold_data[u2_base] = u_data[u2_base];
+                    
+                    idx_base++;
+                    u0_base++;
+                    u1_base++;
+                    u2_base++;
+                }
+            }
 
+            double dp_dxi, dp_de, dp_dx, dp_dy;
             // Convection term
             // k loop starts
-
-            // i є [0,n[0]-2]
-            // j є [1,n[1]-2]
-            // k є [0,2]
-
-            blitz::Array<double, 3> conv{3, n[0], n[1]};
-            blitz::Array<double, 3> alc{3, n[0], n[1]};
-            blitz::Array<double, 3> pec1{3, n[0], n[1]};
-            blitz::Array<double, 3> pec2{3, n[0], n[1]};
-
-            I = blitz::Range(0, n[0] - 2);
-            J = blitz::Range(1, n[1] - 2);
-
-            // convective term in xi direction
-            // when k<=1 (k=0 and k=1)
-            pec1(0, I, J) = uxi(I, J) * Re * dxi(0) / alph(I, J);
-            pec2(0, I, J) = uet(I, J) * Re * dxi(1) / gamma(I, J);
-
-            pec1(1, I, J) = uxi(I, J) * Re * dxi(0) / alph(I, J);
-            pec2(1, I, J) = uet(I, J) * Re * dxi(1) / gamma(I, J);
-
-            // when k=2
-            pec1(2, I, J) = pec1(0, I, J) * Pr;
-            pec2(2, I, J) = pec2(0, I, J) * Pr;
-
-            // CONVECTIVE TERM -THIRD ORDER ASYMMETRIC UPWIND DIFFERENCING IN
-            // CENTER AND CENTRAL AT BOUNDARY + HYBRID DIFFERENCING
-            //  Calculating du_xi
-            //  1--------j є [2,n[1]-3]--------------------------------------
-            J = blitz::Range(2, n[1] - 3);
-            blitz::Range K(0, 2);
-            blitz::Array<double, 3> du_xi{3, n[0], n[1]};
-            blitz::Array<double, 3> du_et{3, n[0], n[1]};
-            blitz::Array<double, 3> uxi_3d = broadcast_to_3d(uxi, 3);
-            blitz::Array<double, 3> uet_3d = broadcast_to_3d(uet, 3);
-
-            // 1.1------i = {0, 1, n[0] - 2}--------------------------------------
-            //CONVECTIVE TERM -THIRD ORDER ASYMMETRIC UPWIND DIFFERENCING IN
-            //CENTER AND CENTRAL AT BOUNDARY + HYBRID DIFFERENCING
-            int tmp1_loop[] = {0, 1, n[0] - 2};
-            for(int i: tmp1_loop){
-                ipp = i + 1;
-                ipp2 = i + 2;
-                inn = i - 1;
-                inn2 = i - 2;
-                if(i == 0){
-                    inn = n[0] - 2;
-                    inn2 = n[0] - 3;
-                }
-                else if(i == 1){
-                    inn2 = n[0] - 2;
-                }
-                else if(i == n[0] - 2){
-                    ipp2 = 1;
-                }
+            // cout << "Calculating convection term..." << endl;
+            for(int i=0; i<n[0]-1; i++) {
+                // Pre-calculate ALL row bases for this i
+                int row_base = i * STRIDE_I + 1;  // Start at j=1
                 
-                du_xi(K, i, J) = where(pec1(K, i, J) <= 2 && pec1(K, i, J) > -2,
-                                ((1.0 / 12.0) * (
-                                    (8.0 * (u(K, ipp, J) - u(K, inn, J))) 
-                                    - (u(K, ipp2, J) - u(K, inn2, J))
-                                    ) / dxi(0)),
-                                ((uxi_3d(K, i, J) * (
-                                    -u(K, ipp2, J) + 8 * u(K, ipp, J) - 8 * u(K, inn, J) + u(K, inn2, J)) / (12.0 * dxi(0))) 
-                                    + (fabs(uxi_3d(K, i, J)) * (u(K, ipp2, J) - 4 * u(K, ipp, J) + 6 * u(K, i, J) - 4 * u(K, inn, J) + u(K, inn2, J)) / (4.0 * dxi(0)))
-                                    ) / uxi_3d(K, i, J));
-
-                du_et(K, i, J) = where(pec2(K, i, J) <= 2 && pec2(K, i, J) > -2,
-                                ((1.0 / 12.0) * (
-                                    (8.0 * (u(K, i, J + 1) - u(K, i, J - 1))) 
-                                    - (u(K, i, J + 2) - u(K, i, J - 2))
-                                    ) / dxi(1)),
-                                ((uet_3d(K, i, J) * (
-                                    -u(K, i, J + 2) + 8 * u(K, i, J + 1) - 8 * u(K, i, J - 1) + u(K, i, J - 2)) / (12.0 * dxi(1))) 
-                                    + (fabs(uet_3d(K, i, J)) * (u(K, i, J + 2) - 4 * u(K, i, J + 1) + 6 * u(K, i, J) - 4 * u(K, i, J - 1) + u(K, i, J - 2)) / (4.0 * dxi(1)))
-                                    ) / uet_3d(K, i, J));
-            }
-
-            // 1.2------i є [2,n[0]-3]--------------------------------------
-            I = blitz::Range(2, n[0] - 3);
-            du_xi(K, I, J) = where(pec1(K, I, J) <= 2 && pec1(K, I, J) > -2,
-                                ((1.0 / 12.0) * (
-                                    ( 8.0 * (u(K, I + 1, J) - u(K, I - 1, J))) 
-                                    - (u(K, I + 2, J) - u(K, I - 2, J))
-                                    ) / dxi(0)),
-                                ((uxi_3d(K, I, J) * (
-                                    -u(K, I + 2, J) + 8 * u(K, I + 1, J) - 8 * u(K, I - 1, J) + u(K, I - 2, J)) / (12.0 * dxi(0))) 
-                                    + (fabs(uxi_3d(K, I, J)) * (u(K, I + 2, J) - 4 * u(K, I + 1, J) + 6 * u(K, I, J) - 4 * u(K, I - 1, J) + u(K, I - 2, J)) / (4.0 * dxi(0)))
-                                    ) / uxi_3d(K, I, J));
-
-            du_et(K, I, J) = where(pec2(K, I, J) <= 2 && pec2(K, I, J) > -2,
-                                ((1.0 / 12.0) * (
-                                    (8.0 * (u(K, I, J + 1) - u(K, I, J - 1))) 
-                                    - (u(K, I, J + 2) - u(K, I, J - 2))
-                                    ) / dxi(1)),
-                                ((uet_3d(K, I, J) * (
-                                    -u(K, I, J + 2) + 8 * u(K, I, J + 1) - 8 * u(K, I, J - 1) + u(K, I, J - 2)) / (12.0 * dxi(1))) 
-                                    + (fabs(uet_3d(K, I, J)) * (u(K, I, J + 2) - 4 * u(K, I, J + 1) + 6 * u(K, I, J) - 4 * u(K, I, J - 1) + u(K, I, J - 2)) / (4.0 * dxi(1)))
-                                    ) / uet_3d(K, I, J));
-
-            //NEAR BOUNDARY ALWAYS CENTRAL	
-            // 2--------j = { 1, n[1] - 2 }-----------------------------------------------
-            int tmp2_loop[] = {1, n[1] - 2};
-            for(int j: tmp2_loop){
-                jpp = j + 1;
-                jnn = j - 1;
-                // 2.1--------i = { 0, 1, n[0] - 2 }-----------------------------------------------
-                for(int i: tmp1_loop){
-                    ipp = i + 1;
-                    ipp2 = i + 2;
-                    inn = i - 1;
-                    inn2 = i - 2;
-                    if(i == 0){
-                        inn = n[0] - 2;
-                        inn2 = n[0] - 3;
+                // Neighbor rows for 2D arrays
+                int inn, ipp, inn2, ipp2;
+                if(i==0 || i==1 || i==n[0]-2) {
+                    if(i==0) {
+                        inn=n[0]-2;
+                        ipp=i+1;
+                        inn2=n[0]-3;
+                        ipp2=i+2;
                     }
-                    else if(i == 1){
-                        inn2 = n[0] - 2;
+                    else if(i==1) {
+                        inn=i-1;
+                        ipp=i+1;
+                        inn2=n[0]-2;
+                        ipp2=i+2;
                     }
-                    else if(i == n[0] - 2){
-                        ipp2 = 1;
+                    else { // i==n[0]-2
+                        inn=i-1;
+                        ipp=i+1;
+                        inn2=i-2;
+                        ipp2=1;
                     }
-
-                    du_xi(K, i, j) = (1.0 / 12.0) * ((8.0 * (u(K, ipp, j) - u(K, inn, j))) - (u(K, ipp2, j) - u(K, inn2, j))) / dxi(0);
-                    du_et(K, i, j) = 0.5 * (u(K, i, jpp) - u(K, i, jnn)) / dxi(1);
-
+                } else {
+                    inn=i-1;
+                    ipp=i+1;
+                    inn2=i-2;
+                    ipp2=i+2;
                 }
 
-                // 2.2------i є [2,n[0]-3]--------------------------------------
-                I = blitz::Range(2, n[0] - 3);
-                du_xi(K, I, j) = (1.0 / 12.0) * ((8.0 * (u(K, I + 1, j) - u(K, I - 1, j))) - (u(K, I + 2, j) - u(K, I - 2, j))) / dxi(0);
-                du_et(K, I, j) = 0.5 * (u(K, I, jpp) - u(K, I, jnn)) / dxi(1);
+                int row_inn = inn * STRIDE_I + 1;
+                int row_ipp = ipp * STRIDE_I + 1;
+                int row_inn2 = inn2 * STRIDE_I + 1;
+                int row_ipp2 = ipp2 * STRIDE_I + 1;
+                int row_last = (n[0]-1) * STRIDE_I + 1;
+                
+                // 3D layer bases for u array
+                int u0_row = row_base;
+                int u1_row = row_base + STRIDE_K;
+                int u2_row = row_base + 2*STRIDE_K;
+                
+                // Neighbor 3D rows
+                int u0_inn = row_inn;
+                int u0_ipp = row_ipp;
+                int u0_inn2 = row_inn2;
+                int u0_ipp2 = row_ipp2;
+                
+                int u1_inn = row_inn + STRIDE_K;
+                int u1_ipp = row_ipp + STRIDE_K;
+                int u1_inn2 = row_inn2 + STRIDE_K;
+                int u1_ipp2 = row_ipp2 + STRIDE_K;
+                
+                int u2_inn = row_inn + 2*STRIDE_K;
+                int u2_ipp = row_ipp + 2*STRIDE_K;
+                int u2_inn2 = row_inn2 + 2*STRIDE_K;
+                int u2_ipp2 = row_ipp2 + 2*STRIDE_K;
 
+                for(int j=1; j<n[1]-1; j++) {
+                    // ALL indices are just the current pointers - NO CALCULATION!
+                    double uxi_ij = uxi_data[row_base];
+                    double uet_ij = uet_data[row_base];
+                    double alph_ij = alph_data[row_base];
+                    double gamma_ij = gamma_data[row_base];
+                    
+                    // j-direction offsets (column neighbors)
+                    int jpp_offset = 1;
+                    int jnn_offset = -1;
+                    int jpp2_offset = 2;
+                    int jnn2_offset = -2;
+
+                    // ========== K LOOP (3 components) ==========
+                    for(int k=0; k<3; k++) {
+                        // Select the right layer base
+                        int uk_row = (k==0) ? u0_row : ((k==1) ? u1_row : u2_row);
+                        int uk_inn = (k==0) ? u0_inn : ((k==1) ? u1_inn : u2_inn);
+                        int uk_ipp = (k==0) ? u0_ipp : ((k==1) ? u1_ipp : u2_ipp);
+                        int uk_inn2 = (k==0) ? u0_inn2 : ((k==1) ? u1_inn2 : u2_inn2);
+                        int uk_ipp2 = (k==0) ? u0_ipp2 : ((k==1) ? u1_ipp2 : u2_ipp2);
+                        
+                        // Peclet numbers
+                        double pec1, pec2;
+                        if(k<=1) {
+                            pec1 = uxi_ij*Re*dxi_data[0]/alph_ij;
+                            pec2 = uet_ij*Re*dxi_data[1]/gamma_ij;
+                        } else {
+                            pec1 = uxi_ij*Re*Pr*dxi_data[0]/alph_ij;
+                            pec2 = uet_ij*Re*Pr*dxi_data[1]/gamma_ij;
+                        }
+                        
+                        // ===== XI DIRECTION DERIVATIVE =====
+                        double du_xi;
+                        if(j >= 2 && j <= n[1]-3) {
+                            if(pec1 <= 2 && pec1 > -2) {
+                                // CENTRAL 4TH ORDER
+                                double xpp = 8.0*(u_data[uk_ipp] - u_data[uk_inn]);
+                                double xnn = u_data[uk_ipp2] - u_data[uk_inn2];
+                                du_xi = (1.0/12.0)*(xpp-xnn)/dxi_data[0];
+                            } else {
+                                // UPWIND 3RD ORDER
+                                double ak1 = uxi_ij * (-u_data[uk_ipp2] + 8*u_data[uk_ipp] 
+                                        - 8*u_data[uk_inn] + u_data[uk_inn2])/(12.0*dxi_data[0]);
+                                double ak2 = fabs(uxi_ij) * (u_data[uk_ipp2] - 4*u_data[uk_ipp] 
+                                        + 6*u_data[uk_row] - 4*u_data[uk_inn] + u_data[uk_inn2])/(4.0*dxi_data[0]);
+                                du_xi = (ak1 + ak2)/uxi_ij;
+                            }
+                        } else {
+                            // NEAR BOUNDARY - CENTRAL
+                            double xpp = 8.0*(u_data[uk_ipp] - u_data[uk_inn]);
+                            double xnn = u_data[uk_ipp2] - u_data[uk_inn2];
+                            du_xi = (1.0/12.0)*(xpp-xnn)/dxi_data[0];
+                        }
+
+                        // ===== ETA DIRECTION DERIVATIVE =====
+                        double du_et;
+                        if (j >= 2 && j <= n[1]-3) {
+                            if (pec2 <= 2 && pec2 > -2) {
+                                // CENTRAL 4TH ORDER
+                                double ypp = 8.0 * (u_data[uk_row + jpp_offset] - u_data[uk_row + jnn_offset]);
+                                double ynn = u_data[uk_row + jpp2_offset] - u_data[uk_row + jnn2_offset];
+                                du_et = (1.0/12.0) * (ypp - ynn) / dxi_data[1];
+                            } else {
+                                // UPWIND 3RD ORDER
+                                double ak3 = uet_ij * (-u_data[uk_row + jpp2_offset] + 8*u_data[uk_row + jpp_offset] 
+                                        - 8*u_data[uk_row + jnn_offset] + u_data[uk_row + jnn2_offset]) / (12.0 * dxi_data[1]);
+                                double ak4 = fabs(uet_ij) * (u_data[uk_row + jpp2_offset] - 4*u_data[uk_row + jpp_offset] 
+                                        + 6*u_data[uk_row] - 4*u_data[uk_row + jnn_offset] 
+                                        + u_data[uk_row + jnn2_offset]) / (4.0 * dxi_data[1]);
+                                du_et = (ak3 + ak4) / uet_ij;
+                            }
+                        } else {
+                            // NEAR BOUNDARY - CENTRAL
+                            du_et = 0.5*(u_data[uk_row + jpp_offset] - u_data[uk_row + jnn_offset])/dxi_data[1];
+                        }
+
+                        conv[k] = uxi_ij*du_xi + uet_ij*du_et;
+                    }
+                    
+                    // ---------------------------------------------------
+                    // DIFFUSION & GUESSED VELOCITY
+                    // ---------------------------------------------------
+                    dp_dxi = (p_data[row_ipp] - p_data[row_inn]) / (2.0 * dxi_data[0]);
+                    dp_de = (p_data[row_base + jpp_offset] - p_data[row_base + jnn_offset]) / (2.0 * dxi_data[1]);
+                    dp_dx = dxix_data[row_base] * dp_dxi + dex_data[row_base] * dp_de;
+                    dp_dy = dxiy_data[row_base] * dp_dxi + dey_data[row_base] * dp_de;
+
+                    qu_data[row_base] = dt * (-conv[0] - dp_dx) + u_data[u0_row];
+                    qv_data[row_base] = dt * (-conv[1] - dp_dy + Ri * u_data[u2_row]) + u_data[u1_row];
+                    qt_data[row_base] = -dt * conv[2] + u_data[u2_row];
+
+                    qup_data[row_base] = qu_data[row_base] + dt * dp_dx;
+                    qvp_data[row_base] = qv_data[row_base] + dt * dp_dy;
+
+                    // Boundary corrections
+                    if(j == 1) {
+                        double sumu = bus_data[i] * u_data[u0_row + jnn_offset] 
+                                    + buse_data[i] * u_data[u0_ipp + jnn_offset] 
+                                    + busw_data[i] * u_data[u0_inn + jnn_offset];
+                        qu_data[row_base] -= sumu;
+                        
+                        double sumv = bus_data[i] * u_data[u1_row + jnn_offset] 
+                                    + buse_data[i] * u_data[u1_ipp + jnn_offset] 
+                                    + busw_data[i] * u_data[u1_inn + jnn_offset];
+                        qv_data[row_base] -= sumv;
+                        
+                        double sumt = bts_data[i] * u_data[u2_row + jnn_offset] 
+                                    + btse_data[i] * u_data[u2_ipp + jnn_offset] 
+                                    + btsw_data[i] * u_data[u2_inn + jnn_offset];
+                        qt_data[row_base] -= sumt;
+
+                        sumu = bus_data[i] * up_data[u0_row + jnn_offset] 
+                            + buse_data[i] * up_data[u0_ipp + jnn_offset] 
+                            + busw_data[i] * up_data[u0_inn + jnn_offset];
+                        qup_data[row_base] -= sumu;
+                        
+                        sumv = bus_data[i] * up_data[u1_row + jnn_offset] 
+                            + buse_data[i] * up_data[u1_ipp + jnn_offset] 
+                            + busw_data[i] * up_data[u1_inn + jnn_offset];
+                        qvp_data[row_base] -= sumv;
+                    }
+                    
+                    if (j == n[1]-2) {
+                        double sumu = bun_data[i] * u_data[u0_row + jpp_offset] 
+                                    + bune_data[i] * u_data[u0_ipp + jpp_offset] 
+                                    + bunw_data[i] * u_data[u0_inn + jpp_offset];
+                        qu_data[row_base] -= sumu;
+
+                        double sumv = bun_data[i] * u_data[u1_row + jpp_offset] 
+                                    + bune_data[i] * u_data[u1_ipp + jpp_offset] 
+                                    + bunw_data[i] * u_data[u1_inn + jpp_offset];
+                        qv_data[row_base] -= sumv;
+
+                        double sumt = btn_data[i] * u_data[u2_row + jpp_offset] 
+                                    + btne_data[i] * u_data[u2_ipp + jpp_offset] 
+                                    + btnw_data[i] * u_data[u2_inn + jpp_offset];
+                        qt_data[row_base] -= sumt;
+
+                        sumu = bun_data[i] * up_data[u0_row + jpp_offset] 
+                            + bune_data[i] * up_data[u0_ipp + jpp_offset] 
+                            + bunw_data[i] * up_data[u0_inn + jpp_offset];
+                        qup_data[row_base] -= sumu;
+
+                        sumv = bun_data[i] * up_data[u1_row + jpp_offset] 
+                            + bune_data[i] * up_data[u1_ipp + jpp_offset] 
+                            + bunw_data[i] * up_data[u1_inn + jpp_offset];
+                        qvp_data[row_base] -= sumv;
+                    }
+
+                    // Periodic BC copy
+                    if(i == 0) {
+                        qu_data[row_last] = qu_data[row_base];
+                        qv_data[row_last] = qv_data[row_base];
+                        qt_data[row_last] = qt_data[row_base];
+                        qup_data[row_last] = qup_data[row_base];
+                        qvp_data[row_last] = qvp_data[row_base];
+                    }
+
+                    // INCREMENT ALL POINTERS for next j
+                    row_base++;
+                    row_inn++;
+                    row_ipp++;
+                    row_inn2++;
+                    row_ipp2++;
+                    row_last++;
+                    
+                    u0_row++;
+                    u1_row++;
+                    u2_row++;
+                    u0_inn++;
+                    u0_ipp++;
+                    u0_inn2++;
+                    u0_ipp2++;
+                    u1_inn++;
+                    u1_ipp++;
+                    u1_inn2++;
+                    u1_ipp2++;
+                    u2_inn++;
+                    u2_ipp++;
+                    u2_inn2++;
+                    u2_ipp2++;
+                }
             }
 
-            // ============================================================================
-            // conv calculated
-            // ============================================================================
-            I = blitz::Range(0, n[0] - 2);
-            J = blitz::Range(1, n[1] - 2);
-            K = blitz::Range(0, 2);
-            conv(K, I, J) = uxi_3d(K, I, J) * du_xi(K, I, J) + uet_3d(K, I, J) * du_et(K, I, J);
-
-            // ---------------------------------------------------
-            // DIFFUSION
-            // ---------------------------------------------------
-
-            // Guessed velocity field (star)
-            J = blitz::Range(1, n[1] - 2);
-            
-            // ------i = 0-----------------------------------------------
-            int i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
-            qu(i, J) = dt * (-conv(0, i, J) - (
-                        dxix(i, J) * ((p(ipp, J) - p(inn, J)) / (2.0 * dxi(0))) 
-                        + dex(i, J) * ((p(i, J + 1) - p(i, J - 1)) / (2.0 * dxi(1))))) 
-                        + u(0, i, J);
-            qv(i, J) = dt * (-conv(1, i, J) - (
-                        dxiy(i, J) * ((p(ipp, J) - p(inn, J)) / (2.0 * dxi(0))) 
-                        + dey(i, J) * ((p(i, J + 1) - p(i, J - 1)) / (2.0 * dxi(1)))) 
-                        + Ri * u(2, i, J))
-                        + u(1, i, J);
-            qup(i, J) = qu(i, J) + dt * (
-                        dxix(i, J) * ((p(ipp, J) - p(inn, J)) / (2.0 * dxi(0))) 
-                        + dex(i, J) * ((p(i, J + 1) - p(i, J - 1)) / (2.0 * dxi(1))));
-            qvp(i, J) = qv(i, J) + dt * (
-                        dxiy(i, J) * ((p(ipp, J) - p(inn, J)) / (2.0 * dxi(0))) 
-                        + dey(i, J) * ((p(i, J + 1) - p(i, J - 1)) / (2.0 * dxi(1))));
-
-            // ------i є [1,n[0]-2]--------------------------------------
-            I = blitz::Range(1, n[0] - 2);
-            qu(I, J) = dt * (-conv(0, I, J) - (
-                        dxix(I, J) * ((p(I+1, J) - p(I-1, J)) / (2.0 * dxi(0))) 
-                        + dex(I, J) * ((p(I, J + 1) - p(I, J - 1)) / (2.0 * dxi(1))))) 
-                        + u(0, I, J);
-            qv(I, J) = dt * (-conv(1, I, J) - (
-                        dxiy(I, J) * ((p(I+1, J) - p(I-1, J)) / (2.0 * dxi(0))) 
-                        + dey(I, J) * ((p(I, J + 1) - p(I, J - 1)) / (2.0 * dxi(1))))
-                        + Ri * u(2, I, J)) 
-                        + u(1, I, J);
-            qup(I, J) = qu(I, J) + dt * (
-                        dxix(I, J) * ((p(I+1, J) - p(I-1, J)) / (2.0 * dxi(0))) 
-                        + dex(I, J) * ((p(I, J + 1) - p(I, J - 1)) / (2.0 * dxi(1))));
-            qvp(I, J) = qv(I, J) + dt * (
-                        dxiy(I, J) * ((p(I+1, J) - p(I-1, J)) / (2.0 * dxi(0))) 
-                        + dey(I, J) * ((p(I, J + 1) - p(I, J - 1)) / (2.0 * dxi(1))));
-
-            I = blitz::Range(0, n[0] - 2);
-            qt(I, J) = -dt * conv(2, I, J) + u(2, I, J);
-            // (j=1) && (j=n[1]-2) for all i
-
-            // ------j = 1-----------------------------------------------
-            int j = 1;
-            jnn = j - 1;
-            // ------i = 0-----------------------------------------------
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
-            qu(i, j) = qu(i, j) - (bus(i) * u(0, i, jnn) + buse(i) * u(0, ipp, jnn) + busw(i) * u(0, inn, jnn));
-            qv(i, j) = qv(i, j) - (bus(i) * u(1, i, jnn) + buse(i) * u(1, ipp, jnn) + busw(i) * u(1, inn, jnn));
-            qt(i, j) = qt(i, j) - (bts(i) * u(2, i, jnn) + btse(i) * u(2, ipp, jnn) + btsw(i) * u(2, inn, jnn));
-
-            qup(i, j) = qup(i, j) - (bus(i) * up(0, i, jnn) + buse(i) * up(0, ipp, jnn) + busw(i) * up(0, inn, jnn));
-            qvp(i, j) = qvp(i, j) - (bus(i) * up(1, i, jnn) + buse(i) * up(1, ipp, jnn) + busw(i) * up(1, inn, jnn));
-
-            // ------i є [1,n[0]-2]-----------------------------------------------
-            I = blitz::Range(1, n[0] - 2);
-            qu(I, j) = qu(I, j) - (bus(I) * u(0, I, jnn) + buse(I) * u(0, I + 1, jnn) + busw(I) * u(0, I - 1, jnn));
-            qv(I, j) = qv(I, j) - (bus(I) * u(1, I, jnn) + buse(I) * u(1, I + 1, jnn) + busw(I) * u(1, I - 1, jnn));
-            qt(I, j) = qt(I, j) - (bts(I) * u(2, I, jnn) + btse(I) * u(2, I + 1, jnn) + btsw(I) * u(2, I - 1, jnn));
-
-            qup(I, j) = qup(I, j) - (bus(I) * up(0, I, jnn) + buse(I) * up(0, I + 1, jnn) + busw(I) * up(0, I - 1, jnn));
-            qvp(I, j) = qvp(I, j) - (bus(I) * up(1, I, jnn) + buse(I) * up(1, I + 1, jnn) + busw(I) * up(1, I - 1, jnn));
-
-            // ------j = n[1]-2 -----------------------------------------------
-            j = n[1] - 2;
-            jpp = j + 1;
-            // ------i = 0-----------------------------------------------
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
-            
-            qu(i, j) = qu(i, j) - (bun(i) * u(0, i, jpp) + bune(i) * u(0, ipp, jpp) + bunw(i) * u(0, inn, jpp));
-            qv(i, j) = qv(i, j) - (bun(i) * u(1, i, jpp) + bune(i) * u(1, ipp, jpp) + bunw(i) * u(1, inn, jpp));
-            qt(i, j) = qt(i, j) - (btn(i) * u(2, i, jpp) + btne(i) * u(2, ipp, jpp) + btnw(i) * u(2, inn, jpp));
-
-            qup(i, j) = qup(i, j) - (bun(i) * up(0, i, jpp) + bune(i) * up(0, ipp, jpp) + bunw(i) * up(0, inn, jpp));
-            qvp(i, j) = qvp(i, j) - (bun(i) * up(1, i, jpp) + bune(i) * up(1, ipp, jpp) + bunw(i) * up(1, inn, jpp));
-
-            // ------i є [1,n[0]-2]-----------------------------------------------
-            I = blitz::Range(1, n[0] - 2);
-            qu(I, j) = qu(I, j) - (bun(I) * u(0, I, jpp) + bune(I) * u(0, I + 1, jpp) + bunw(I) * u(0, I - 1, jpp));
-            qv(I, j) = qv(I, j) - (bun(I) * u(1, I, jpp) + bune(I) * u(1, I + 1, jpp) + bunw(I) * u(1, I - 1, jpp));
-            qt(I, j) = qt(I, j) - (btn(I) * u(2, I, jpp) + btne(I) * u(2, I + 1, jpp) + btnw(I) * u(2, I - 1, jpp));
-
-            qup(I, j) = qup(I, j) - (bun(I) * up(0, I, jpp) + bune(I) * up(0, I + 1, jpp) + bunw(I) * up(0, I - 1, jpp));
-            qvp(I, j) = qvp(I, j) - (bun(I) * up(1, I, jpp) + bune(I) * up(1, I + 1, jpp) + bunw(I) * up(1, I - 1, jpp));
-
-
-            // copy first element to last
-            J = blitz::Range(1, n[1] - 2);
-            qu(n[0] - 1, J) = qu(0, J);
-            qv(n[0] - 1, J) = qv(0, J);
-            qt(n[0] - 1, J) = qt(0, J);
-            qup(n[0] - 1, J) = qup(0, J);
-            qvp(n[0] - 1, J) = qvp(0, J);
-
-            // End of space scan
-
-            // ---------------------------------------------------
-            // Solving u-velocity
-            // ---------------------------------------------------
-            I = blitz::Range(0,n[0]-1);
-            J = blitz::Range(0,n[1]-1);
-            sol(I,J) = u(0,I,J);            
+            // Copy u[0] to sol
+            for(int i = 0; i < n[0]; i++) {
+                int idx_base = i * STRIDE_I;
+                int u0_base = idx_base;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u0_base++) {
+                    sol_data[idx_base] = u_data[u0_base];
+                }
+            }
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qu);
 
-            I = blitz::Range(0,n[0]-2);
-            J = blitz::Range(1,n[1]-2);
-            us(0,I,J) = sol(I,J);
-            us(0,n[0]-1,J) = sol(0,J);
+            // Update us[0] array
+            for(int i = 0; i < n[0]-1; i++) {
+                int idx_base = i * STRIDE_I + 1;
+                int us0_base = idx_base;
+                int us0_last = (n[0]-1) * STRIDE_I + 1;
+                
+                for(int j = 1; j < n[1]-1; j++, idx_base++, us0_base++, us0_last++) {
+                    us_data[us0_base] = sol_data[idx_base];
+                    if (i == 0) {
+                        us_data[us0_last] = sol_data[idx_base];
+                    }
+                }
+            }
 
-            // ---------------------------------------------------
-            // Solving v-velocity
-            // ---------------------------------------------------
-            I = blitz::Range(0,n[0]-1);
-            J = blitz::Range(0,n[1]-1);
-            sol(I,J) = u(1,I,J);
+            // 'solving v-vel'
+            // cout << "Solving v-velocity..." << endl;
+            for(int i = 0; i < n[0]; i++) {
+                int idx_base = i * STRIDE_I;
+                int u1_base = idx_base + STRIDE_K;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u1_base++) {
+                    sol_data[idx_base] = u_data[u1_base];
+                }
+            }
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qv);
 
-            I = blitz::Range(0,n[0]-2);
-            J = blitz::Range(1,n[1]-2);
-            us(1,I,J) = sol(I,J);
-            us(1,n[0]-1,J) = sol(0,J);
-            
-            // ---------------------------------------------------
-            // Solving Temperature
-            // ---------------------------------------------------
-            I = blitz::Range(0,n[0]-1);
-            J = blitz::Range(0,n[1]-1);
-            sol(I,J) = u(2,I,J);
+            for(int i = 0; i < n[0]-1; i++) {
+                int idx_base = i * STRIDE_I + 1;
+                int us1_base = idx_base + STRIDE_K;
+                int us1_last = (n[0]-1) * STRIDE_I + 1 + STRIDE_K;
+                
+                for(int j = 1; j < n[1]-1; j++, idx_base++, us1_base++, us1_last++) {
+                    us_data[us1_base] = sol_data[idx_base];
+                    if (i == 0) {
+                        us_data[us1_last] = sol_data[idx_base];
+                    }
+                }
+            }
+
+            // 'solving T'
+            // cout << "Solving temperature..." << endl;
+            for(int i = 0; i < n[0]; i++) {
+                int idx_base = i * STRIDE_I;
+                int u2_base = idx_base + 2*STRIDE_K;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u2_base++) {
+                    sol_data[idx_base] = u_data[u2_base];
+                }
+            }
 
             gauss(atp, ate, ats, atn, atw, atse, atsw, atne, atnw, atss, atssee,
                 atssww, atsse, atssw, atsee, atsww, atnn, atnnee, atnnww, atnne, atnw,
                 atnee, atnww, atee, atww, sol, qt);
 
-            I = blitz::Range(0,n[0]-2);
-            J = blitz::Range(1,n[1]-2);
-            us(2,I,J) = sol(I,J);
-            us(2,n[0]-1,J) = sol(0,J);
+            for(int i = 0; i < n[0]-1; i++) {
+                int idx_base = i * STRIDE_I + 1;
+                int u2_base = idx_base + 2*STRIDE_K;
+                int u2_last = (n[0]-1) * STRIDE_I + 1 + 2*STRIDE_K;
+                
+                for(int j = 1; j < n[1]-1; j++, idx_base++, u2_base++, u2_last++) {
+                    u_data[u2_base] = sol_data[idx_base];
+                    if (i == 0) {
+                        u_data[u2_last] = sol_data[idx_base];
+                    }
+                }
+            }
 
-            // ---------------------------------------------------
-            // Solving up velocity
-            // ---------------------------------------------------
-            I = blitz::Range(0,n[0]-1);
-            sol(I,0) = up(0,I,0);
+            // 'solving up-vel'
+            // cout << "Solving up-velocity..." << endl;
+            for(int i = 0; i < n[0]; i++) {
+                int idx = i * STRIDE_I;
+                sol_data[idx] = up_data[idx];  // up[0][i][0]
+            }
 
-            J = blitz::Range(1,n[1]-1);
-            sol(I,J) = 0.0;
+            for(int i = 0; i < n[0]; i++) {
+                int idx_base = i * STRIDE_I + 1;
+                for(int j = 1; j < n[1]; j++, idx_base++) {
+                    sol_data[idx_base] = 0.0;
+                }
+            }
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qup);
 
-            I = blitz::Range(0,n[0]-2);
-            J = blitz::Range(1,n[1]-2);
-            up(0,I,J) = sol(I,J);
-            up(0,n[0]-1,J) = sol(0,J);
+            for(int i = 0; i < n[0]-1; i++) {
+                int idx_base = i * STRIDE_I + 1;
+                int up0_base = idx_base;
+                int up0_last = (n[0]-1) * STRIDE_I + 1;
+                
+                for(int j = 1; j < n[1]-1; j++, idx_base++, up0_base++, up0_last++) {
+                    up_data[up0_base] = sol_data[idx_base];
+                    if (i == 0) {
+                        up_data[up0_last] = sol_data[idx_base];
+                    }
+                }
+            }
 
-            // ---------------------------------------------------
-            // Solving vp velocity
-            // ---------------------------------------------------
-            I = blitz::Range(0,n[0]-1);
-            sol(I,0) = up(1,I,0);
+            // 'solving vp-vel'
+            // cout << "Solving vp-velocity..." << endl;
+            for(int i = 0; i < n[0]; i++) {
+                int idx = i * STRIDE_I;
+                sol_data[idx] = up_data[idx + STRIDE_K];  // up[1][i][0]
+            }
 
-            J = blitz::Range(1,n[1]-1);
-            sol(I,J) = 0.0;
+            for(int i = 0; i < n[0]; i++) {
+                int idx_base = i * STRIDE_I + 1;
+                for(int j = 1; j < n[1]; j++, idx_base++) {
+                    sol_data[idx_base] = 0.0;
+                }
+            }
 
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qvp);
 
-            I = blitz::Range(0,n[0]-2);
-            J = blitz::Range(1,n[1]-2);
-            up(1,I,J) = sol(I,J);
-            up(1,n[0]-1,J) = sol(0,J);
+            for(int i = 0; i < n[0]-1; i++) {
+                int idx_base = i * STRIDE_I + 1;
+                int up1_base = idx_base + STRIDE_K;
+                int up1_last = (n[0]-1) * STRIDE_I + 1 + STRIDE_K;
+                
+                for(int j = 1; j < n[1]-1; j++, idx_base++, up1_base++, up1_last++) {
+                    up_data[up1_base] = sol_data[idx_base];
+                    if (i == 0) {
+                        up_data[up1_last] = sol_data[idx_base];
+                    }
+                }
+            }
 
             // ------------------------------------------------------
             // updating the bc for up
             // ------------------------------------------------------
-             blitz::Array<double,1> vnn{n[0]};
+            // cout << "Updating boundary conditions for up..." << endl;
+            int j = n[1] - 1;
+            int up0_base = j;
+            int up1_base = j + STRIDE_K;
 
-            j = n[1] - 1;
-            jnn = j-1;
-            I = blitz::Range(0,n[0]-2);
-            
-            vnn(I) = uinf * xnox(I) + vinf * xnoy(I);
+            for(int i = 0; i < n[0] - 1; i++) {
+                vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
 
-            up(0,I,j) = where( vnn(I) >= 0, 
-                               u(0,I,j), 
-                               (5.0 * up(0,I,jnn) - 4.0 * up(0,I,jnn-1) + up(0,I,jnn-2)) / 2.0);
+                if(vnn >= 0) {
+                    up_data[up0_base] = u_data[up0_base];
+                    up_data[up1_base] = u_data[up1_base];
+                }
+                else {
+                    // Extrapolation from interior
+                    up_data[up0_base] = (5.0 * up_data[up0_base - 1] - 4.0 * up_data[up0_base - 2] + up_data[up0_base - 3]) / 2.0;
+                    up_data[up1_base] = (5.0 * up_data[up1_base - 1] - 4.0 * up_data[up1_base - 2] + up_data[up1_base - 3]) / 2.0;
+                }
 
-            up(1,I,j) = where( vnn(I) >= 0, 
-                               u(1,I,j), 
-                               (5.0 * up(1,I,jnn) - 4.0 * up(1,I,jnn-1) + up(1,I,jnn-2)) / 2.0);
-
-            // Copy first element to last
-            up(0,n[0]-1,j) = up(0,0,j);
-            up(1,n[0]-1,j) = up(1,0,j);
+                if (i == 0) {
+                    int last_idx = (n[0]-1) * STRIDE_I + j;
+                    up_data[last_idx] = up_data[up0_base];
+                    up_data[last_idx + STRIDE_K] = up_data[up1_base];
+                }
+                
+                up0_base += STRIDE_I;
+                up1_base += STRIDE_I;
+            }
 
             // ----------------------------------------------------------
             // calculation of star velocities at i+-1/2 and j+-1/2
             // ----------------------------------------------------------
+            // cout << "Calculating star velocities at i+-1/2 and j+-1/2..." << endl;
+            for(int i = 0; i < n[0] - 1; i++) {
+                int row_base = i * STRIDE_I + 1;
+                
+                int inn = (i == 0) ? n[0] - 2 : i - 1;
+                int ipp = i + 1;
+                int row_inn = inn * STRIDE_I + 1;
+                int row_ipp = ipp * STRIDE_I + 1;
+                
+                int up0_base = row_base;
+                int up1_base = row_base + STRIDE_K;
+                int up0_inn = row_inn;
+                int up0_ipp = row_ipp;
+                int up1_inn = row_inn + STRIDE_K;
+                int up1_ipp = row_ipp + STRIDE_K;
 
-            // ------j є [1,n[1]-2]-----------------------------------------------
-            J = blitz::Range(1,n[1]-2);
+                for(int j = 1; j < n[1] - 1; j++) {
+                    // All neighbors via simple offsets
+                    double dxix_ij = dxix_data[row_base];
+                    double dxiy_ij = dxiy_data[row_base];
+                    double dex_ij = dex_data[row_base];
+                    double dey_ij = dey_data[row_base];
 
-            // ------i = 0 -------------------------------------------------------
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
+                    // Pressure derivatives at half-points
+                    double dpdxi_ip = (p_data[row_ipp] - p_data[row_base]) / dxi_data[0];
+                    double dpde_ip = (p_data[row_ipp + 1] + p_data[row_base + 1] - p_data[row_base - 1] - p_data[row_ipp - 1]) / (4.0 * dxi_data[1]);
 
-            q(i,J) = (dxix(i,J) 
-                        * ((
-                            (0.5 * (up(0,i,J) + up(0,ipp,J)) - 0.5 * dt * ((dxix(i,J) + dxix(ipp,J)) 
-                                * ((p(ipp,J) - p(i,J)) / dxi(0)) + (dex(i,J) + dex(ipp,J)) 
-                                * ((p(ipp,J+1) + p(i,J+1) - p(i,J-1) - p(ipp,J-1)) / (4.0 * dxi(1))))) 
-                            - (0.5 * (up(0,i,J) + up(0,inn,J)) - 0.5 * dt * ((dxix(i,J) + dxix(inn,J)) 
-                                * ((p(i,J) - p(inn,J)) / dxi(0)) 
-                                + (dex(i,J) + dex(inn,J)) 
-                                * ((p(i,J+1) + p(inn,J+1) - p(i,J-1) - p(inn,J-1)) / (4.0 * dxi(1)))))
-                            ) / dxi(0))
-                        ) + (dex(i,J) 
-                        * ((
-                            (0.5 * (up(0,i,J) + up(0,i,J+1)) - 0.5 * dt * ((dxix(i,J) + dxix(i,J+1)) 
-                                * ((p(ipp,J+1) - p(inn,J+1) + p(ipp,J) - p(inn,J)) / (4.0 * dxi(0))) 
-                                + (dex(i,J) + dex(i,J+1)) 
-                                * ((p(i,J+1) - p(i,J)) / dxi(1))))
-                            - (0.5 * (up(0,i,J) + up(0,i,J-1)) - 0.5 * dt * ((dxix(i,J) + dxix(i,J-1)) 
-                                * ((p(ipp,J) - p(inn,J) + p(ipp,J-1) - p(inn,J-1)) / (4.0 * dxi(0))) 
-                                + (dex(i,J) + dex(i,J-1)) 
-                                * ((p(i,J) - p(i,J-1)) / dxi(1))))
-                            ) / dxi(1))
-                    ) + (dxiy(i,J) 
-                        * ((
-                            (0.5 * (up(1,i,J) + up(1,ipp,J)) - 0.5 * dt * ((dxiy(i,J) + dxiy(ipp,J)) 
-                                * ((p(ipp,J) - p(i,J)) / dxi(0)) + (dey(i,J) + dey(ipp,J)) 
-                                * ((p(ipp,J+1) + p(i,J+1) - p(i,J-1) - p(ipp,J-1)) / (4.0 * dxi(1)))))
-                            - (0.5 * (up(1,i,J) + up(1,inn,J)) - 0.5 * dt * ((dxiy(i,J) + dxiy(inn,J)) 
-                                * ((p(i,J) - p(inn,J)) / dxi(0)) 
-                                + (dey(i,J) + dey(inn,J)) 
-                                * ((p(i,J+1) + p(inn,J+1) - p(i,J-1) - p(inn,J-1)) / (4.0 * dxi(1)))))
-                        ) / dxi(0))
-                    ) + (dey(i,J) 
-                        * ((
-                            (0.5 * (up(1,i,J) + up(1,i,J+1)) - 0.5 * dt * ((dxiy(i,J) + dxiy(i,J+1)) 
-                                * ((p(ipp,J+1) - p(inn,J+1) + p(ipp,J) - p(inn,J)) / (4.0 * dxi(0))) 
-                                + (dey(i,J) + dey(i,J+1)) 
-                                * ((p(i,J+1) - p(i,J)) / dxi(1)))) 
-                            - (0.5 * (up(1,i,J) + up(1,i,J-1)) - 0.5 * dt * ((dxiy(i,J) + dxiy(i,J-1)) 
-                                * ((p(ipp,J) - p(inn,J) + p(ipp,J-1) - p(inn,J-1)) / (4.0 * dxi(0))) 
-                                + (dey(i,J) + dey(i,J-1)) 
-                                * ((p(i,J) - p(i,J-1)) / dxi(1))))
-                            ) / dxi(1))
-                    );
+                    double dpdxi_in = (p_data[row_base] - p_data[row_inn]) / dxi_data[0];
+                    double dpde_in = (p_data[row_base + 1] + p_data[row_inn + 1] - p_data[row_base - 1] - p_data[row_inn - 1]) / (4.0 * dxi_data[1]);
 
-            // ------i є [1,n[0]-2]-----------------------------------------------
-            I = blitz::Range(1,n[0]-2);
+                    double dpdxi_jp = (p_data[row_ipp + 1] - p_data[row_inn + 1] + p_data[row_ipp] - p_data[row_inn]) / (4.0 * dxi_data[0]);
+                    double dpde_jp = (p_data[row_base + 1] - p_data[row_base]) / dxi_data[1];
 
-            q(I,J) = (dxix(I,J) 
-                        * ((
-                            (0.5 * (up(0,I,J) + up(0,I+1,J)) - 0.5 * dt * ((dxix(I,J) + dxix(I+1,J)) 
-                                * ((p(I+1,J) - p(I,J)) / dxi(0)) + (dex(I,J) + dex(I+1,J)) 
-                                * ((p(I+1,J+1) + p(I,J+1) - p(I,J-1) - p(I+1,J-1)) / (4.0 * dxi(1))))) 
-                            - (0.5 * (up(0,I,J) + up(0,I-1,J)) - 0.5 * dt * ((dxix(I,J) + dxix(I-1,J)) 
-                                * ((p(I,J) - p(I-1,J)) / dxi(0)) 
-                                + (dex(I,J) + dex(I-1,J)) 
-                                * ((p(I,J+1) + p(I-1,J+1) - p(I,J-1) - p(I-1,J-1)) / (4.0 * dxi(1)))))
-                            ) / dxi(0))
-                        ) + (dex(I,J) 
-                        * ((
-                            (0.5 * (up(0,I,J) + up(0,I,J+1)) - 0.5 * dt * ((dxix(I,J) + dxix(I,J+1)) 
-                                * ((p(I+1,J+1) - p(I-1,J+1) + p(I+1,J) - p(I-1,J)) / (4.0 * dxi(0))) 
-                                + (dex(I,J) + dex(I,J+1)) 
-                                * ((p(I,J+1) - p(I,J)) / dxi(1))))
-                            - (0.5 * (up(0,I,J) + up(0,I,J-1)) - 0.5 * dt * ((dxix(I,J) + dxix(I,J-1)) 
-                                * ((p(I+1,J) - p(I-1,J) + p(I+1,J-1) - p(I-1,J-1)) / (4.0 * dxi(0))) 
-                                + (dex(I,J) + dex(I,J-1)) 
-                                * ((p(I,J) - p(I,J-1)) / dxi(1))))
-                            ) / dxi(1))
-                    ) + (dxiy(I,J) 
-                        * ((
-                            (0.5 * (up(1,I,J) + up(1,I+1,J)) - 0.5 * dt * ((dxiy(I,J) + dxiy(I+1,J)) 
-                                * ((p(I+1,J) - p(I,J)) / dxi(0)) + (dey(I,J) + dey(I+1,J)) 
-                                * ((p(I+1,J+1) + p(I,J+1) - p(I,J-1) - p(I+1,J-1)) / (4.0 * dxi(1)))))
-                            - (0.5 * (up(1,I,J) + up(1,I-1,J)) - 0.5 * dt * ((dxiy(I,J) + dxiy(I-1,J)) 
-                                * ((p(I,J) - p(I-1,J)) / dxi(0)) 
-                                + (dey(I,J) + dey(I-1,J)) 
-                                * ((p(I,J+1) + p(I-1,J+1) - p(I,J-1) - p(I-1,J-1)) / (4.0 * dxi(1)))))
-                        ) / dxi(0))
-                    ) + (dey(I,J) 
-                        * ((
-                            (0.5 * (up(1,I,J) + up(1,I,J+1)) - 0.5 * dt * ((dxiy(I,J) + dxiy(I,J+1)) 
-                                * ((p(I+1,J+1) - p(I-1,J+1) + p(I+1,J) - p(I-1,J)) / (4.0 * dxi(0))) 
-                                + (dey(I,J) + dey(I,J+1)) 
-                                * ((p(I,J+1) - p(I,J)) / dxi(1)))) 
-                            - (0.5 * (up(1,I,J) + up(1,I,J-1)) - 0.5 * dt * ((dxiy(I,J) + dxiy(I,J-1)) 
-                                * ((p(I+1,J) - p(I-1,J) + p(I+1,J-1) - p(I-1,J-1)) / (4.0 * dxi(0))) 
-                                + (dey(I,J) + dey(I,J-1)) 
-                                * ((p(I,J) - p(I,J-1)) / dxi(1))))
-                            ) / dxi(1))
-                    );
+                    double dpdxi_jn = (p_data[row_ipp] - p_data[row_inn] + p_data[row_ipp - 1] - p_data[row_inn - 1]) / (4.0 * dxi_data[0]);
+                    double dpde_jn = (p_data[row_base] - p_data[row_base - 1]) / dxi_data[1];
 
-            // ---------------------------------------------------------------------------------
-            I = blitz::Range(0,n[0]-2);
-            q(I,J) = q(I,J) / dt;
-            // ---------------------------------------------------------------------------------
+                    // Star velocities (u-component)
+                    double us_ip = 0.5 * (up_data[up0_base] + up_data[up0_ipp]) - 0.5 * dt * 
+                                ((dxix_ij + dxix_data[row_ipp]) * dpdxi_ip + (dex_ij + dex_data[row_ipp]) * dpde_ip);
+
+                    double us_in = 0.5 * (up_data[up0_base] + up_data[up0_inn]) - 0.5 * dt * 
+                                ((dxix_ij + dxix_data[row_inn]) * dpdxi_in + (dex_ij + dex_data[row_inn]) * dpde_in);
+
+                    double us_jp = 0.5 * (up_data[up0_base] + up_data[up0_base + 1]) - 0.5 * dt * 
+                                ((dxix_ij + dxix_data[row_base + 1]) * dpdxi_jp + (dex_ij + dex_data[row_base + 1]) * dpde_jp);
+
+                    double us_jn = 0.5 * (up_data[up0_base] + up_data[up0_base - 1]) - 0.5 * dt * 
+                                ((dxix_ij + dxix_data[row_base - 1]) * dpdxi_jn + (dex_ij + dex_data[row_base - 1]) * dpde_jn);
+
+                    // Star velocities (v-component)
+                    double vs_ip = 0.5 * (up_data[up1_base] + up_data[up1_ipp]) - 0.5 * dt * 
+                                ((dxiy_ij + dxiy_data[row_ipp]) * dpdxi_ip + (dey_ij + dey_data[row_ipp]) * dpde_ip);
+
+                    double vs_in = 0.5 * (up_data[up1_base] + up_data[up1_inn]) - 0.5 * dt * 
+                                ((dxiy_ij + dxiy_data[row_inn]) * dpdxi_in + (dey_ij + dey_data[row_inn]) * dpde_in);
+
+                    double vs_jp = 0.5 * (up_data[up1_base] + up_data[up1_base + 1]) - 0.5 * dt * 
+                                ((dxiy_ij + dxiy_data[row_base + 1]) * dpdxi_jp + (dey_ij + dey_data[row_base + 1]) * dpde_jp);
+
+                    double vs_jn = 0.5 * (up_data[up1_base] + up_data[up1_base - 1]) - 0.5 * dt * 
+                                ((dxiy_ij + dxiy_data[row_base - 1]) * dpdxi_jn + (dey_ij + dey_data[row_base - 1]) * dpde_jn);
+
+                    // Divergence
+                    double dusdxi = (us_ip - us_in) / dxi_data[0];
+                    double dusde = (us_jp - us_jn) / dxi_data[1];
+                    double dvsdxi = (vs_ip - vs_in) / dxi_data[0];
+                    double dvsde = (vs_jp - vs_jn) / dxi_data[1];
+
+                    q_data[row_base] = ((dxix_ij * dusdxi) + (dex_ij * dusde) + (dxiy_ij * dvsdxi) + (dey_ij * dvsde)) / dt;
+                    
+                    // Increment all pointers
+                    row_base++;
+                    row_inn++;
+                    row_ipp++;
+                    up0_base++;
+                    up1_base++;
+                    up0_inn++;
+                    up0_ipp++;
+                    up1_inn++;
+                    up1_ipp++;
+                }
+            }
 
             // INITIALIZING THE PCORR
-            I = blitz::Range(0,n[0]-1);
-            J = blitz::Range(0,n[1]-1);
-            pcor(I, J) = 0;
-            uold(0, I, J) = u(0, I, J);
-            uold(1, I, J) = u(1, I, J);
+            // cout << "Initializing pcor..." << endl;
+            for(int i = 0; i < n[0]; i++) {
+                int idx_base = i * STRIDE_I;
+                int u0_base = idx_base;
+                int u1_base = idx_base + STRIDE_K;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u0_base++, u1_base++) {
+                    pcor_data[idx_base] = 0;
+                    uold_data[u0_base] = u_data[u0_base];
+                    uold_data[u1_base] = u_data[u1_base];
+                }
+            }
 
             // ----------------------------------------------------
             // performing Gauss Seidel iterations
             // ----------------------------------------------------
- 
+            // cout << "Performing Gauss-Seidel iterations..." << endl;
             sip9p(ap, ae, as, an, aw, ase, asw, ane, anw, pcor, q);
 
             // ------apply boundary condition on Pcor
-            // std::cout << "Applying boundary condition on pcor..." << std::endl;
+            // cout << "Applying boundary condition on pcor..." << endl;
             if (norm == 1) {
-                std::cout << "hello" << std::endl;
-            }
-            else {
-                // --------------solid-boundary-------------------
-                j = 0;
-                I = blitz::Range(0, n[0]-2);
-                pcor(I, j) = pcor(I, j+1);        //Copy j+1 to j for ALL i
-                pcor(n[0]-1, j) = pcor(0, j);
-
-                // ----------------artificial boundary--------------
-                // j = n[1] - 1;
-
-                // for(int i = 0; i < n[0] - 1; i++) {
-                //     vnn = uinf * xnox(i) + vinf * xnoy(i);
-
-                //     pcor(i,j) = 0;
-                //     if(vnn >= 0) 
-                //         pcor(i,j) = pcor(i,j-1);
-
-                //     if (i == 0) {
-                //         pcor(n[0]-1,j) = pcor(i,j);
-                //     }
-                // }
+                cout << "hello" << endl;
+            } else {
+                // Solid boundary (j=0)
+                int j = 0;
+                int pcor_base = j;
+                int pcor_next = j + 1;
                 
-                blitz::Array<double,1> vnn1{n[0]};
+                for(int i = 0; i < n[0] - 1; i++, pcor_base += STRIDE_I, pcor_next += STRIDE_I) {
+                    pcor_data[pcor_base] = pcor_data[pcor_next];
+
+                    if (i == 0) {
+                        int last_idx = (n[0] - 1) * STRIDE_I + j;
+                        pcor_data[last_idx] = pcor_data[pcor_base];
+                    }
+                }
+
+                // Artificial boundary (j=n[1]-1)
                 j = n[1] - 1;
-                I = blitz::Range(0,n[0]-2);
+                pcor_base = j;
+                int pcor_prev = j - 1;
 
-                vnn1(I) = uinf * xnox(I) + vinf * xnoy(I);
-                pcor(I, j) = 0;
-                pcor(I,j) = where( vnn1(I) >= 0,
-                                   pcor(I,j-1), 
-                                   pcor(I,j));
+                for(int i = 0; i < n[0] - 1; i++, pcor_base += STRIDE_I, pcor_prev += STRIDE_I) {
+                    vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
 
-                i = 0;
-                // Copying first element to last
-                pcor(n[0]-1, j) = pcor(i,j);
+                    pcor_data[pcor_base] = 0;
+                    if(vnn >= 0) 
+                        pcor_data[pcor_base] = pcor_data[pcor_prev];
+
+                    if (i == 0) {
+                        int last_idx = (n[0] - 1) * STRIDE_I + j;
+                        pcor_data[last_idx] = pcor_data[pcor_base];
+                    }
+                }
             }
 
-            // ------------------------------------------------------------------------
-            // updating U and V from Pcor in the interior
-            // ------------------------------------------------------------------------
-            
-            // ------j є [1,n[1]-2]---------------------------------------------
-            J = blitz::Range(1,n[1]-2);
+            // --------------------------------------------------------
+            // -----updating U and V from Pcor in the interior
+            // ---------------------------------------------------------
+            // cout << "Updating U and V from pcor in the interior..." << endl;
+            for(int i = 0; i < n[0] - 1; i++) {
+                int row_base = i * STRIDE_I + 1;
+                
+                int inn = (i == 0) ? n[0] - 2 : i - 1;
+                int ipp = i + 1;
+                int row_inn = inn * STRIDE_I + 1;
+                int row_ipp = ipp * STRIDE_I + 1;
+                
+                int u0_base = row_base;
+                int u1_base = row_base + STRIDE_K;
+                int us0_base = row_base;
+                int us1_base = row_base + STRIDE_K;
+                int u0_last = (n[0]-1) * STRIDE_I + 1;
+                int u1_last = u0_last + STRIDE_K;
+                
+                for(int j = 1; j < n[1] - 1; j++) {
+                    double dpcor_dxi = 0.5 * (pcor_data[row_ipp] - pcor_data[row_inn]) / dxi_data[0];
+                    double dpcor_de = 0.5 * (pcor_data[row_base + 1] - pcor_data[row_base - 1]) / dxi_data[1];
 
-            // ------i = 0 -----------------------------------------------------
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
+                    u_data[u0_base] = us_data[us0_base] - dt * (dxix_data[row_base] * dpcor_dxi + dex_data[row_base] * dpcor_de);
+                    u_data[u1_base] = us_data[us1_base] - dt * (dxiy_data[row_base] * dpcor_dxi + dey_data[row_base] * dpcor_de);
 
-            u(0,i,J) = us(0,i,J) - dt * (
-                                            dxix(i,J) 
-                                            * (0.5 * (pcor(ipp,J) - pcor(inn,J)) / dxi(0)) 
-                                            + dex(i,J) 
-                                            * (0.5 * (pcor(i,J+1) - pcor(i,J-1)) / dxi(1))
-                                        );
+                    if (i == 0) {
+                        u_data[u0_last] = u_data[u0_base];
+                        u_data[u1_last] = u_data[u1_base];
+                    }
+                    
+                    row_base++;
+                    row_inn++;
+                    row_ipp++;
+                    u0_base++;
+                    u1_base++;
+                    us0_base++;
+                    us1_base++;
+                    u0_last++;
+                    u1_last++;
+                }
+            }
 
-            u(1,i,J) = us(1,i,J) - dt * (
-                                            dxiy(i,J) 
-                                            * (0.5 * (pcor(ipp,J) - pcor(inn,J)) / dxi(0)) 
-                                            + dey(i,J) 
-                                            * (0.5 * (pcor(i,J+1) - pcor(i,J-1)) / dxi(1))
-                                        );
+            for(int i = 0; i < n[0] - 1; i++) {
+                int row_base = i * STRIDE_I + 1;
+                int row_last = (n[0]-1) * STRIDE_I + 1;
+                
+                for(int j = 1; j < n[1] - 1; j++, row_base++, row_last++) {
+                    p_data[row_base] = p_data[row_base] + pcor_data[row_base];
 
-            // ------i є [1,n[0]-2]----------------------------------------------
-            I = blitz::Range(1,n[0]-2);
-
-            u(0,I,J) = us(0,I,J) - dt * (
-                                            dxix(I,J) 
-                                            * (0.5 * (pcor(I+1,J) - pcor(I-1,J)) / dxi(0)) 
-                                            + dex(I,J) 
-                                            * (0.5 * (pcor(I,J+1) - pcor(I,J-1)) / dxi(1))
-                                        );
-
-            u(1,I,J) = us(1,I,J) - dt * (
-                                            dxiy(I,J) 
-                                            * (0.5 * (pcor(I+1,J) - pcor(I-1,J)) / dxi(0)) 
-                                            + dey(I,J) 
-                                            * (0.5 * (pcor(I,J+1) - pcor(I,J-1)) / dxi(1))
-                                        );
-
-            //--------------------------------------------------------------------------
-            
-            // Copying first element to last
-            u(0,n[0]-1,J) = u(0,0,J);
-            u(1,n[0]-1,J) = u(1,0,J);
-            
-            //--------------------------------------------------------------------------
-            
-            I = blitz::Range(0,n[0]-2);
-            J = blitz::Range(1,n[1]-2);
-
-            p(I, J) = p(I, J) + pcor(I, J);
-            // Copying first element to last
-            p(n[0]-1, J) = p(0, J);
-
+                    if (i == 0) {
+                        p_data[row_last] = p_data[row_base];
+                    }
+                }
+            }
 
             // ==========================================================
             // Evaluating Vr and Vth from U and V velocity just
             // before the outer plane in vr,vth index 0 is n[1]-2
             // ==========================================================
+            // cout << "Evaluating Vr and Vth from U and V velocity..." << endl;
+
             j = n[1] - 2;
-            I = blitz::Range(0,n[0]-2);
+            int u0_base = j;
+            int u1_base = j + STRIDE_K;
+            int x0_base = j;
+            int x1_base = j + STRIDE_K;
 
-            vr(0,I) = u(0,I,j)
-                      * (x(0,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j))) 
-                      + u(1,I,j) 
-                      * (x(1,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j)));
-            vth(0,I) = -u(0,I,j) 
-                        * (x(0,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j))) 
-                        + u(1,I,j) 
-                        * (x(1,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j)));
+            for(int i = 0; i < n[0] - 1; i++) {
+                double x0 = x_data[x0_base];
+                double x1 = x_data[x1_base];
+                double r = sqrt(x0*x0 + x1*x1);
+                double costh = x0 / r;
+                double sinth = x1 / r;
 
-            // Copying first element to last
-            vr(0,n[0]-1) = vr(0,0);
-            vth(0,n[0]-1) = vth(0,0);
+                vr_data[i] = u_data[u0_base] * costh + u_data[u1_base] * sinth;
+                vth_data[i] = -u_data[u0_base] * sinth + u_data[u1_base] * costh;
+
+                if (i == 0) {
+                    vr_data[n[0] - 1] = vr_data[i];
+                    vth_data[n[0] - 1] = vth_data[i];
+                }
+                
+                u0_base += STRIDE_I;
+                u1_base += STRIDE_I;
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
+            }
 
             // ===========================================================
             // Calculating circulation at the 2nd last level in jth
             // ===========================================================
+            // cout << "Calculating circulation at the 2nd last level..." << endl;
             double circ = 0.0;
-            double de = 1.0 / (n[0] - 2);
-
             j = n[1] - 2;
-            I = blitz::Range(0,n[0]-2);
+            int row_base = j;
 
-            circ = sum(de * 0.5 * (
-                                    (u(0,I,j) * dey(I,j) - u(1,I,j) * dex(I,j)) * fabs(ajac(I,j))
-                                    + (u(0,I+1,j) * dey(I+1,j) - u(1,I+1,j) * dex(I+1,j)) * fabs(ajac(I+1,j))
-                                  ));
+            for(int i = 0; i < n[0] - 1; i++, row_base += STRIDE_I) {
+                int row_next = row_base + STRIDE_I;
+                
+                double de = 1.0 / (n[0] - 2);
+                double f1 = (u_data[row_base] * dey_data[row_base] - u_data[row_base + STRIDE_K] * dex_data[row_base]) * fabs(ajac_data[row_base]);
+                double f2 = (u_data[row_next] * dey_data[row_next] - u_data[row_next + STRIDE_K] * dex_data[row_next]) * fabs(ajac_data[row_next]);
+
+                circ += de * 0.5 * (f1 + f2);
+            }
 
             // =========================================================
             // Predicting values for vr and vth at outer
             // =========================================================
-            double eps = 1e-2;
-
+            // cout << "Predicting values for vr and vth at outer..." << endl;
             j = n[1] - 1;
-            I = blitz::Range(0,n[0]-2);
+            int jm1 = j - 1;
+            x0_base = j;
+            x1_base = j + STRIDE_K;
+            int x0_jm1 = jm1;
+            int x1_jm1 = jm1 + STRIDE_K;
 
-            int kk;
-            if (fabs(circ) > eps) {
-                kk = 1;
+            for(int i = 0; i < n[0] - 1; i++) {
+                double eps = 1e-2;
+                
+                double x0_j = x_data[x0_base];
+                double x1_j = x_data[x1_base];
+                double x0_jm = x_data[x0_jm1];
+                double x1_jm = x_data[x1_jm1];
+                
+                double cr = sqrt(x0_jm*x0_jm + x1_jm*x1_jm) / sqrt(x0_j*x0_j + x1_j*x1_j);
+                double r = sqrt(x0_j*x0_j + x1_j*x1_j);
+                double costh = x0_j / r;
+                double sinth = x1_j / r;
+
+                double vrinf = uinf * costh + vinf * sinth;
+                double vtinf = -uinf * sinth + vinf * costh;
+                
+                int kk = (fabs(circ) > eps) ? 1 : 2;
+
+                vr_data[np1 + i] = vr_data[i] * pow(cr, 2) + vrinf * (1 - pow(cr, 2));
+                vth_data[np1 + i] = vth_data[i] * pow(cr, kk) + vtinf * (1 - pow(cr, kk));
+
+                if (i == 0) {
+                    vr_data[np1 + n[0] - 1] = vr_data[np1 + i];
+                    vth_data[np1 + n[0] - 1] = vth_data[np1 + i];
+                }
+                
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
+                x0_jm1 += STRIDE_I;
+                x1_jm1 += STRIDE_I;
             }
-            else {
-                kk = 2;
-            }
-
-            vr(1,I) = vr(0,I) * pow(
-                                    sqrt(x(0,I,j-1) * x(0,I,j-1) + x(1,I,j-1) * x(1,I,j-1)) 
-                                    / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j))
-                                    , 2) 
-                                    + (uinf 
-                                            * (x(0,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j)))
-                                            + vinf 
-                                            * (x(1,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j)))
-                                      )
-                                    * (1 - pow(
-                                                sqrt(x(0,I,j-1) * x(0,I,j-1) + x(1,I,j-1) * x(1,I,j-1)) 
-                                                / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j))
-                                                , 2));
-            vth(1,I) = vth(0,I) * pow(
-                                        sqrt(x(0,I,j-1) * x(0,I,j-1) + x(1,I,j-1) * x(1,I,j-1)) 
-                                        / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j))
-                                        , kk) 
-                                        + (-uinf 
-                                                * (x(1,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j))) 
-                                                + vinf 
-                                                * (x(0,I,j) / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j)))
-                                          )
-                                        * (1 - pow(
-                                                    sqrt(x(0,I,j-1) * x(0,I,j-1) + x(1,I,j-1) * x(1,I,j-1)) 
-                                                    / sqrt(x(0,I,j) * x(0,I,j) + x(1,I,j) * x(1,I,j))
-                                                    , kk));
-
-            // Copying first element to last
-            vr(1,n[0]-1) = vr(1,0);
-            vth(1,n[0]-1) = vth(1,0);
 
             // --------------------------------------------------
             // updating the bc of U And V
             // ---------------------------------------------------
+            // cout << "Updating boundary conditions of U and V..." << endl;
             // -----------------cylinder_oscillation--------------
+            // cout << "Applying cylinder oscillation boundary condition..." << endl;
             j = 0;
-            I = blitz::Range(0,n[0]-1);
-            
-            u(0,I,j) = -speed_amp * cos(2.0 * Pi * F * time) * x(1,I,j);
-            up(0,I,j) = u(0,I,j);
 
-            u(1,I,j) = speed_amp * cos(2.0 * Pi * F * time) * x(0,I,j);
-            up(1,I,j) = u(1,I,j);
-
-
-            // j = n[1] - 1;
-
-            // for(int i = 0; i < n[0] - 1; i++) {
-
-            //     vnn = uinf * xnox(i) + vinf * xnoy(i);
-            //     if(vnn >= 0) {
-            //         u(0,i,j) = uinf;
-            //         u(1,i,j) = vinf;
-            //         u(2,i,j) = 0.0;
-            //     }
-            //     else {
-            //         double costh = x(0,i,j) / sqrt(x(0,i,j) * x(0,i,j) + x(1,i,j) * x(1,i,j));
-            //         double sinth = x(1,i,j) / sqrt(x(0,i,j) * x(0,i,j) + x(1,i,j) * x(1,i,j));
-
-            //         u(0,i,j) = costh * vr(1,i) - sinth * vth(1,i);
-            //         u(1,i,j) = sinth * vr(1,i) + costh * vth(1,i);
-            //         u(2,i,j) = uold(2,i,j) - (uet(i,j) * dt / dxi(1)) * (uold(2,i,j) - uold(2,i,j-1));
-            //     }
-
-            //     if (i == 0) {
-            //         u(0,n[0]-1,j) = u(0,0,j);
-            //         u(1,n[0]-1,j) = u(1,0,j);
-            //         u(2,n[0]-1,j) = u(2,0,j);
-            //     }
-            // }
+            for(int k = 0; k < 2; k++) {
+                int uk_base = k * STRIDE_K + j;
+                int xother_base = (1-k) * STRIDE_K + j;
+                
+                for(int i = 0; i < n[0]; i++, uk_base += STRIDE_I, xother_base += STRIDE_I) {
+                    if(k == 0) {
+                        u_data[uk_base] = -speed_amp * cos(2.0 * Pi * F * time) * x_data[xother_base + STRIDE_K];
+                        up_data[uk_base] = u_data[uk_base];
+                    }
+                    else {
+                        u_data[uk_base] = speed_amp * cos(2.0 * Pi * F * time) * x_data[xother_base - STRIDE_K];
+                        up_data[uk_base] = u_data[uk_base];
+                    }
+                }
+            }
 
             j = n[1] - 1;
-            I = blitz::Range(0, n[0]-2);
-            blitz::Array<double,1> vnn1{n[0]};
+            u0_base = j;
+            u1_base = j + STRIDE_K;
+            int u2_base = j + 2*STRIDE_K;
+            int uold2_base = u2_base;
+            int uold2_jm1 = j - 1 + 2*STRIDE_K;
+            x0_base = j;
+            x1_base = j + STRIDE_K;
+            int uet_base = j;
 
-            vnn1(I) = uinf * xnox(I) + vinf * xnoy(I);
+            for(int i = 0; i < n[0] - 1; i++) {
+                vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
+                
+                if(vnn >= 0) {
+                    u_data[u0_base] = uinf;
+                    u_data[u1_base] = vinf;
+                    u_data[u2_base] = 0.0;
+                }
+                else {
+                    double x0 = x_data[x0_base];
+                    double x1 = x_data[x1_base];
+                    double r = sqrt(x0*x0 + x1*x1);
+                    double costh = x0 / r;
+                    double sinth = x1 / r;
 
-            // Correct u update
-            u(0, I, j) = where(vnn1(I) >= 0, 
-                            uinf,
-                            (x(0, I, j) / sqrt(x(0,I,j)*x(0,I,j) + x(1,I,j)*x(1,I,j)))*vr(1, I) 
-                            - (x(1, I, j) / sqrt(x(0,I,j)*x(0,I,j) + x(1,I,j)*x(1,I,j)))*vth(1, I));
+                    u_data[u0_base] = costh * vr_data[np1 + i] - sinth * vth_data[np1 + i];
+                    u_data[u1_base] = sinth * vr_data[np1 + i] + costh * vth_data[np1 + i];
+                    u_data[u2_base] = uold_data[uold2_base] - (uet_data[uet_base] * dt / dxi_data[1]) * (uold_data[uold2_base] - uold_data[uold2_jm1]);
+                }
 
-            u(1, I, j) = where(vnn1(I) >= 0, 
-                            vinf,
-                            (x(1, I, j) / sqrt(x(0,I,j)*x(0,I,j) + x(1,I,j)*x(1,I,j)))*vr(1, I) 
-                            + (x(0, I, j) / sqrt(x(0,I,j)*x(0,I,j) + x(1,I,j)*x(1,I,j)))*vth(1, I));
-
-            u(2, I, j) = where(vnn1(I) >= 0, 
-                            0.0,
-                            uold(2,I,j) - (uet(I,j)*dt/dxi(1))*(uold(2,I,j) - uold(2,I,j-1)));
-
-            // Periodic copy
-            u(0, n[0]-1, j) = u(0, 0, j);
-            u(1, n[0]-1, j) = u(1, 0, j);
-            u(2, n[0]-1, j) = u(2, 0, j);
-
+                if (i == 0) {
+                    int last_idx = (n[0]-1) * STRIDE_I + j;
+                    u_data[last_idx] = u_data[u0_base];
+                    u_data[last_idx + STRIDE_K] = u_data[u1_base];
+                    u_data[last_idx + 2*STRIDE_K] = u_data[u2_base];
+                }
+                
+                u0_base += STRIDE_I;
+                u1_base += STRIDE_I;
+                u2_base += STRIDE_I;
+                uold2_base += STRIDE_I;
+                uold2_jm1 += STRIDE_I;
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
+                uet_base += STRIDE_I;
+            }
 
             // =============================
             // apply BE for updating pressure
             // =============================
-            // ========================================================================
-            // APPLYING MOMENTUM EQUATION ON inlet AND SOLID BOUNDARY
-            // and Gresho's condition at outflow
-            // ========================================================================
+            // cout << "Applying BE for updating pressure..." << endl;
             // obtaining the new uxi and uet
-            I = blitz::Range(0,n[0]-1);
-            J = blitz::Range(0,n[1]-1);
+            for (int i = 0; i < n[0]; i++) {
+                int base2d = i * STRIDE_I;
+                int u0 = base2d;
+                int u1 = base2d + STRIDE_K;
+                
+                for (int j = 0; j < n[1]; j++) {
+                    uxi_data[base2d] = dxix_data[base2d] * u_data[u0] + dxiy_data[base2d] * u_data[u1];
+                    uet_data[base2d] = dex_data[base2d] * u_data[u0] + dey_data[base2d] * u_data[u1];
+                    base2d++;
+                    u0++;
+                    u1++;
+                }
+            }
 
-            uxi(I, J) = dxix(I, J) * u(0, I, J) + dxiy(I, J) * u(1, I, J);
-            uet(I, J) = dex(I, J) * u(0, I, J) + dey(I, J) * u(1, I, J);
+            // at solid boundary
+            // cout << "Applying at solid boundary..." << endl;
             
-            // at solid boundary (j=0)
-            // j = 0;
-            // double dp_dx, dp_dy;
-            // for(int i = 0; i < n[0] - 1; i++) {
-
-            //     for(int k = 0; k < 2; k++) {
-            //         conv(k) = 0;
-            //         d2u(k) = 0;
-            //         alc(k) = 0;
-
-            //         if (i == 0) {
-            //             ipp = i + 1;
-            //             inn = n[0] - 2;
-            //         }
-            //         else {
-            //             ipp = i + 1;
-            //             inn = i - 1;
-            //         }
-
-            //         jpp = j + 1;
-            //         jpp2 = j + 2;
-
-            //         d2u(k) = (alph(i,j) * (u(k,ipp,j) + u(k,inn,j) - 2 * u(k,i,j)) / (dxi(0) * dxi(0))) 
-            //                     + (gamma(i,j) * (u(k,i,jpp+1) + u(k,i,j) - 2 * u(k,i,jpp)) / (dxi(1) * dxi(1)))
-            //                     - 2 
-            //                     * (beta(i,j) * (u(k,ipp,jpp) + u(k,inn,j) - u(k,inn,jpp) - u(k,ipp,j)) / (2 * dxi(0) * dxi(1))) 
-            //                     + (q1(i,j) * (-3 * u(k,i,j) + 4 * u(k,i,jpp) - u(k,i,jpp2)) / (2 * dxi(1)));
-
-            //     }
-
-            //     p(i,j) = p(i,j+1) 
-            //                 - ((1.0 * d2u(0) / Re 
-            //                     - ((uxi(i,j) * 0.5 * (u(0,ipp,j) - u(0,inn,j)) / dxi(0)) 
-            //                     + uet(i,j) * (u(0,i,jpp) - u(0,i,j)) / dxi(1)) 
-            //                     - (accn_amp * sin(2.0 * Pi * F * time) * x(1,i,j))) 
-            //                 * (-dxiy(i,j) * ajac(i,j)) 
-            //                 + (1.0 * d2u(1) / Re 
-            //                     - ((uxi(i,j) * 0.5 * (u(1,ipp,j) - u(1,inn,j)) / dxi(0)) 
-            //                     + uet(i,j) * (u(1,i,jpp) - u(1,i,j)) / dxi(1)) 
-            //                     - (-accn_amp * sin(2.0 * Pi * F * time) * x(0,i,j)) + Ri * u(2,i,j)) 
-            //                 * (dxix(i,j) * ajac(i,j))) * dxi(1);
-
-            //     if(i == 0) p(n[0]-1,j) = p(i,j);
-            // }
-
-            uxi_3d = broadcast_to_3d(uxi, 3);
-            uet_3d = broadcast_to_3d(uet, 3);
-            blitz::Array<double, 3> alpha_3d = broadcast_to_3d(alph, 3);
-            blitz::Array<double, 3> gamma_3d = broadcast_to_3d(gamma, 3);
-            blitz::Array<double, 3> beta_3d = broadcast_to_3d(beta, 3);
-            blitz::Array<double, 3> q1_3d = broadcast_to_3d(q1, 3);
-            blitz::Array<double,2> dp_dx1{n[0], n[1]};
-            blitz::Array<double,2> dp_dy1{n[0], n[1]};
-
-            // at solid boundary (j=0)
             j = 0;
-            jpp = j + 1;
-            jpp2 = j + 2;
+            for (int i = 0; i < n[0] - 1; i++) {
+                int idx = i * STRIDE_I + j;
+                double dp_dx = 0.0, dp_dy = 0.0;
 
-            K = blitz::Range(0, 1);  // Only k=0,1 (u,v), NOT k=2 (temperature)
+                for (int k = 0; k < 2; k++) {
+                    conv[k] = 0.0;
+                    d2u[k] = 0.0;
+                    alc[k] = 0.0;
 
-            // Initialize
-            I = blitz::Range(0, n[0]-2);
-            // blitz::Array<double, 3> d2u1{3, n[0], n[1]};
-            d2u1(K, I, j) = 0;
-            conv(K, I, j) = 0;
-            alc(K, I, j) = 0;
+                    inn = (i == 0) ? n[0] - 2 : i - 1;
+                    ipp = i + 1;
+                    jpp = j + 1;
+                    jpp2 = j + 2;
 
-            // ======================== i=0 (periodic) ========================
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
+                    int ipp_j = ipp * STRIDE_I + j;
+                    int inn_j = inn * STRIDE_I + j;
+                    int i_jpp = i * STRIDE_I + jpp;
+                    int i_jpp2 = i * STRIDE_I + jpp2;
 
-            d2u1(K, i, j) = (alpha_3d(K, i, j) * (u(K,ipp,j) + u(K,inn,j) - 2*u(K,i,j)) / (dxi(0)*dxi(0)))
-                             + (gamma_3d(K, i, j) * (u(K,i,jpp2) + u(K,i,j) - 2*u(K,i,jpp)) / (dxi(1)*dxi(1))) 
-                             - 2
-                             * (beta_3d(K, i, j) * (u(K,ipp,jpp) + u(K,inn,j) - u(K,inn,jpp) - u(K,ipp,j)) / (2*dxi(0)*dxi(1))) 
-                             + (q1_3d(K, i, j) * (-3*u(K,i,j) + 4*u(K,i,jpp) - u(K,i,jpp2)) / (2*dxi(1)));
+                    int uk_ij = (k == 0) ? (i * STRIDE_I + j) : (i * STRIDE_I + j + STRIDE_K);
+                    int uk_ipp_j = (k == 0) ? (ipp_j) : (ipp_j + STRIDE_K);
+                    int uk_inn_j = (k == 0) ? (inn_j) : (inn_j + STRIDE_K);
+                    int uk_i_jpp = (k == 0) ? (i_jpp) : (i_jpp + STRIDE_K);
+                    int uk_i_jpp2 = (k == 0) ? (i_jpp2) : (i_jpp2 + STRIDE_K);
 
+                    // diffusive
+                    double aa = alph_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_j] - 2.0 * u_data[uk_ij]) / (dxi_data[0] * dxi_data[0]);
+                    double gg = gamma_data[idx] * (u_data[uk_i_jpp + 1] + u_data[uk_ij] - 2.0 * u_data[uk_i_jpp]) / (dxi_data[1] * dxi_data[1]);
+                    double bb = beta_data[idx] * (u_data[(k == 0 ? (ipp * STRIDE_I + jpp) : (ipp * STRIDE_I + jpp + STRIDE_K))] + u_data[uk_inn_j] - u_data[(k == 0 ? (inn * STRIDE_I + jpp) : (inn * STRIDE_I + jpp + STRIDE_K))] - u_data[uk_ipp_j]) / (2.0 * dxi_data[0] * dxi_data[1]);
+                    double qqq = q1_data[idx] * (-3.0 * u_data[uk_ij] + 4.0 * u_data[uk_i_jpp] - u_data[uk_i_jpp2]) / (2.0 * dxi_data[1]);
 
-            dp_dx1(i, j) = (1.0 * d2u1(0, i, j))/Re 
-                            - (uxi_3d(0, i, j) * 0.5 * (u(0,ipp,j) - u(0,inn,j)) / dxi(0) + uet_3d(0, i, j) * (u(0,i,jpp) - u(0,i,j)) / dxi(1)) 
-                            - (accn_amp * sin(2.0*Pi*F*time) * x(1, i, j));
+                    d2u[k] = aa + gg - 2.0 * bb + qqq;
 
-            dp_dy1(i, j) = (1.0 * d2u1(1, i, j))/Re 
-                            - (uxi_3d(1, i, j) * 0.5 * (u(1,ipp,j) - u(1,inn,j)) / dxi(0) + uet_3d(1, i, j) * (u(1,i,jpp) - u(1,i,j)) / dxi(1)) 
-                            - (-accn_amp * sin(2.0*Pi*F*time) * x(0, i, j)) + Ri*u(2, i, j);
+                    // convective
+                    conv[k] = uxi_data[idx] * 0.5 * (u_data[uk_ipp_j] - u_data[uk_inn_j]) / dxi_data[0];
+                    conv[k] += uet_data[idx] * (u_data[uk_i_jpp] - u_data[uk_ij]) / dxi_data[1];
 
-            // ======================== i ∈ [1,n[0]-2] (normal) ========================
-            I = blitz::Range(1, n[0]-2);
+                    // local
+                    if (k == 0) {
+                        alc[k] = accn_amp * sin(2.0 * Pi * F * time) * x_data[STRIDE_K + i * STRIDE_I + j];
+                    } else {
+                        alc[k] = -accn_amp * sin(2.0 * Pi * F * time) * x_data[i * STRIDE_I + j];
+                    }
 
-            // Diffusive terms (Blitz++ auto-broadcasts 2D arrays to 3D!)
-            
-            d2u1(K, I, j) = (alpha_3d(K, I, j) * (u(K,I+1,j) + u(K,I-1,j) - 2*u(K,I,j)) / (dxi(0)*dxi(0))) 
-                            + (gamma_3d(K, I, j) * (u(K,I,jpp2) + u(K,I,j) - 2*u(K,I,jpp)) / (dxi(1)*dxi(1)))
-                            - 2 
-                            * (beta_3d(K, I, j) * (u(K,I+1,jpp) + u(K,I-1,j) - u(K,I-1,jpp) - u(K,I+1,j)) / (2*dxi(0)*dxi(1)))
-                            + (q1_3d(K, I, j) * (-3*u(K,I,j) + 4*u(K,I,jpp) - u(K,I,jpp2)) / (2*dxi(1)));
+                    if (k == 0) dp_dx = d2u[k] / Re - conv[k] - alc[k];
+                    if (k == 1) dp_dy = d2u[k] / Re - conv[k] - alc[k] + Ri * u_data[2 * STRIDE_K + i * STRIDE_I + j];
+                }
 
-            dp_dx1(I, j) = (1.0 * d2u1(0, I, j))/Re 
-                            - (uxi_3d(0, I, j) * 0.5 * (u(0,I+1,j) - u(0,I-1,j)) / dxi(0) + uet_3d(0, I, j) * (u(0,I,jpp) - u(0,I,j)) / dxi(1)) 
-                            - (accn_amp * sin(2.0*Pi*F*time) * x(1, I, j));
+                p_data[idx] = p_data[i * STRIDE_I + (j + 1)] - (dp_dx * (-dxiy_data[idx] * ajac_data[idx]) + dp_dy * (dxix_data[idx] * ajac_data[idx])) * dxi_data[1];
 
-            dp_dy1(I, j) = (1.0 * d2u1(1, I, j))/Re 
-                            - (uxi_3d(1, I, j) * 0.5 * (u(1,I+1,j) - u(1,I-1,j)) / dxi(0) + uet_3d(1, I, j) * (u(1,I,jpp) - u(1,I,j)) / dxi(1)) 
-                            - (-accn_amp * sin(2.0*Pi*F*time) * x(0, I, j)) + Ri*u(2, I, j);
+                if (i == 0) p_data[(n[0] - 1) * STRIDE_I + j] = p_data[idx];
+            }
 
-            // ======================== All i together ========================
-            I = blitz::Range(0, n[0]-2);
-            p(I, j) = p(I, j+1) - (dp_dx1(I,j)*(-dxiy(I,j)*ajac(I,j)) + dp_dy1(I,j)*(dxix(I,j)*ajac(I,j))) * dxi(1);
-
-            // Periodic copy
-            p(n[0]-1, j) = p(0, j);
-
-            // at exit boundary
-            // std::cout << "Applying at exit boundary..." << std::endl;
-            // j = n[1] - 1;
-            // double dp_dx, dp_dy;
-            // for(int i = 0; i < n[0] - 1; i++) {
-            //     vnn = uinf * xnox(i) + vinf * xnoy(i);
-            //     if(vnn >= 0) {
-            //         // -------------momentum equation----------------------------------
-            //         for(int k = 0; k < 2; k++) {
-            //             conv(k) = 0;
-            //             d2u(k) = 0;
-            //             alc(k) = 0;
-
-            //             ipp = i + 1;
-            //             inn = i - 1;
-            //             if(i == 0) inn = n[0] - 2;
-
-            //             jnn = j - 1;
-            //             jnn2 = j - 2;
-
-            //             d2u(k) = (alph(i,j) * (u(k,ipp,j) + u(k,inn,j) - 2 * u(k,i,j)) / (dxi(0) * dxi(0))) 
-            //                         + (gamma(i,j) * (u(k,i,j) + u(k,i,jnn2) - 2 * u(k,i,jnn)) / (dxi(1) * dxi(1)))
-            //                         - 2 
-            //                         * (beta(i,j) * (u(k,ipp,j) + u(k,inn,jnn) - u(k,ipp,jnn) - u(k,inn,j)) / (2 * dxi(0) * dxi(1))) 
-            //                         + (q1(i,j) * (3 * u(k,i,j) - 4 * u(k,i,jnn) + u(k,i,jnn2)) / (2 * dxi(1)));
-
-            //             if (k == 0) dp_dx = 1.0 * d2u(k) / Re 
-            //                                 - ((uxi(i,j) * 0.5 * (u(k,ipp,j) - u(k,inn,j)) / dxi(0)) + uet(i,j) * (3.0 * u(k,i,j) - 4 * u(k,i,jnn) + u(k,i,jnn2)) / (2 * dxi(1)))
-            //                                 - ((u(k,i,j) - uold(k,i,j)) / dt);
-            //             if (k == 1) dp_dy = 1.0 * d2u(k) / Re 
-            //                                 - ((uxi(i,j) * 0.5 * (u(k,ipp,j) - u(k,inn,j)) / dxi(0)) + uet(i,j) * (3.0 * u(k,i,j) - 4 * u(k,i,jnn) + u(k,i,jnn2)) / (2 * dxi(1))) 
-            //                                 - ((u(k,i,j) - uold(k,i,j)) / dt) 
-            //                                 + Ri * u(2,i,j);
-            //         }   // k-loop
-
-            //         p(i,j) = p(i,j-1) + (dp_dx * (-dxiy(i,j) * ajac(i,j)) + dp_dy * (dxix(i,j) * ajac(i,j))) * dxi(1);
-            //     }
-            //     else {
-            //         // -------------gresho's condition---------------------------------
-            //         p(i,j) = 0.5 * (1.0 / Re) * ((3 * uet(i,j) - 4 * uet(i,j-1) + uet(i,j-2)) / dxi(1));
-            //     }
-
-            //     if(i == 0) p(n[0]-1,j) = p(i,j);
-            // }
-
-            // at exit boundary
-            // cout << "Applying at exit boundary..." << endl;
             // at exit boundary
             j = n[1] - 1;
-            jnn = j - 1;
-            jnn2 = j - 2;
-            I = blitz::Range(0, n[0]-2);
-            K = blitz::Range(0, 1);
+            for (int i = 0; i < n[0] - 1; i++) {
+                int idx = i * STRIDE_I + j;
 
-            blitz::Array<double,1> vnn2(n[0]-1);
-            vnn2(I) = uinf * xnox(I) + vinf * xnoy(I);
+                vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
+                if (vnn >= 0.0) {
+                    double dp_dx = 0.0, dp_dy = 0.0;
 
-            // Initialize arrays
-            d2u1 = 0;
-            conv(K, I, j) = 0;
-            alc(K, I, j) = 0;
-            dp_dx1 = 0;
-            dp_dy1 = 0;
+                    for (int k = 0; k < 2; k++) {
+                        conv[k] = 0.0;
+                        d2u[k] = 0.0;
+                        alc[k] = 0.0;
 
-            // Create 3D broadcast arrays
-            uxi_3d = broadcast_to_3d(uxi, 3);
-            uet_3d = broadcast_to_3d(uet, 3);
-            alpha_3d = broadcast_to_3d(alph, 3);
-            gamma_3d = broadcast_to_3d(gamma, 3);
-            beta_3d = broadcast_to_3d(beta, 3);
-            q1_3d = broadcast_to_3d(q1, 3);
+                        ipp = i + 1;
+                        inn = (i == 0) ? n[0] - 2 : i - 1;
+                        jnn = j - 1;
+                        jnn2 = j - 2;
 
-            // ======================== i=0 (periodic) ========================
-            i = 0;
-            inn = n[0] - 2;
-            ipp = i + 1;
+                        int ipp_j = ipp * STRIDE_I + j;
+                        int inn_j = inn * STRIDE_I + j;
+                        int i_jnn = i * STRIDE_I + jnn;
+                        int ipp_jnn = ipp * STRIDE_I + jnn;
+                        int inn_jnn = inn * STRIDE_I + jnn;
+                        int i_jnn2 = i * STRIDE_I + jnn2;
 
-            // Compute d2u for i=0 (always compute, condition applied later)
-            d2u1(K, i, j) = (alpha_3d(K,i,j) * (u(K,ipp,j) + u(K,inn,j) - 2 * u(K,i,j)) / (dxi(0) * dxi(0))) 
-                            + (gamma_3d(K,i,j) * (u(K,i,j) + u(K,i,jnn2) - 2 * u(K,i,jnn)) / (dxi(1) * dxi(1)))
-                            - 2 * (beta_3d(K,i,j) * (u(K,ipp,j) + u(K,inn,jnn) - u(K,ipp,jnn) - u(K,inn,j)) / (2 * dxi(0) * dxi(1))) 
-                            + (q1_3d(K,i,j) * (3 * u(K,i,j) - 4 * u(K,i,jnn) + u(K,i,jnn2)) / (2 * dxi(1)));
+                        int uk_ij = (k == 0) ? (i * STRIDE_I + j) : (i * STRIDE_I + j + STRIDE_K);
+                        int uk_ipp_j = (k == 0) ? (ipp_j) : (ipp_j + STRIDE_K);
+                        int uk_inn_j = (k == 0) ? (inn_j) : (inn_j + STRIDE_K);
+                        int uk_i_jnn = (k == 0) ? (i_jnn) : (i_jnn + STRIDE_K);
+                        int uk_ipp_jnn = (k == 0) ? (ipp_jnn) : (ipp_jnn + STRIDE_K);
+                        int uk_inn_jnn = (k == 0) ? (inn_jnn) : (inn_jnn + STRIDE_K);
+                        int uk_i_jnn2 = (k == 0) ? (i_jnn2) : (i_jnn2 + STRIDE_K);
 
-            // Compute dp_dx and dp_dy for i=0
-            dp_dx1(i,j) = (1.0 * d2u1(0, i, j) / Re 
-                        - ((uxi_3d(0,i,j) * 0.5 * (u(0,ipp,j) - u(0,inn,j)) / dxi(0)) 
-                        + uet_3d(0,i,j) * (3.0 * u(0,i,j) - 4 * u(0,i,jnn) + u(0,i,jnn2)) / (2 * dxi(1)))
-                        - ((u(0,i,j) - uold(0,i,j)) / dt));
+                        // diffusive
+                        double aa = alph_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_j] - 2.0 * u_data[uk_ij]) / (dxi_data[0] * dxi_data[0]);
+                        double gg = gamma_data[idx] * (u_data[uk_ij] + u_data[uk_i_jnn - 1] - 2.0 * u_data[uk_i_jnn]) / (dxi_data[1] * dxi_data[1]);
+                        double bb = beta_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_jnn] - u_data[uk_ipp_jnn] - u_data[uk_inn_j]) / (2.0 * dxi_data[0] * dxi_data[1]);
+                        double qqq = q1_data[idx] * (3.0 * u_data[uk_ij] - 4.0 * u_data[uk_i_jnn] + u_data[uk_i_jnn2]) / (2.0 * dxi_data[1]);
 
-            dp_dy1(i,j) = (1.0 * d2u1(1, i, j) / Re 
-                        - ((uxi_3d(1,i,j) * 0.5 * (u(1,ipp,j) - u(1,inn,j)) / dxi(0)) 
-                        + uet_3d(1,i,j) * (3.0 * u(1,i,j) - 4 * u(1,i,jnn) + u(1,i,jnn2)) / (2 * dxi(1))) 
-                        - ((u(1,i,j) - uold(1,i,j)) / dt) 
-                        + Ri * u(2,i,j));
+                        d2u[k] = aa + gg - 2.0 * bb + qqq;
 
-            // ======================== i ∈ [1,n[0]-2] (normal) ========================
-            I = blitz::Range(1, n[0]-2);
+                        // convective
+                        conv[k] = uxi_data[idx] * 0.5 * (u_data[uk_ipp_j] - u_data[uk_inn_j]) / dxi_data[0];
+                        conv[k] += uet_data[idx] * (3.0 * u_data[uk_ij] - 4.0 * u_data[uk_i_jnn] + u_data[uk_i_jnn2]) / (2.0 * dxi_data[1]);
 
-            // Compute d2u for range I (always compute, condition applied later)
-            d2u1(K, I, j) = (alpha_3d(K,I,j) * (u(K,I+1,j) + u(K,I-1,j) - 2 * u(K,I,j)) / (dxi(0) * dxi(0))) 
-                            + (gamma_3d(K,I,j) * (u(K,I,j) + u(K,I,jnn2) - 2 * u(K,I,jnn)) / (dxi(1) * dxi(1)))
-                            - 2 * (beta_3d(K,I,j) * (u(K,I+1,j) + u(K,I-1,jnn) - u(K,I+1,jnn) - u(K,I-1,j)) / (2 * dxi(0) * dxi(1))) 
-                            + (q1_3d(K,I,j) * (3 * u(K,I,j) - 4 * u(K,I,jnn) + u(K,I,jnn2)) / (2 * dxi(1)));
+                        // local
+                        alc[k] = (u_data[uk_ij] - uold_data[uk_ij]) / dt;
 
-            // Compute dp_dx and dp_dy for range I
-            dp_dx1(I,j) = (1.0 * d2u1(0, I, j) / Re 
-                        - ((uxi_3d(0,I,j) * 0.5 * (u(0,I+1,j) - u(0,I-1,j)) / dxi(0)) 
-                        + uet_3d(0,I,j) * (3.0 * u(0,I,j) - 4 * u(0,I,jnn) + u(0,I,jnn2)) / (2 * dxi(1)))
-                        - ((u(0,I,j) - uold(0,I,j)) / dt));
+                        if (k == 0) dp_dx = d2u[k] / Re - conv[k] - alc[k];
+                        if (k == 1) dp_dy = d2u[k] / Re - conv[k] - alc[k] + Ri * u_data[2 * STRIDE_K + i * STRIDE_I + j];
+                    }
 
-            dp_dy1(I,j) = (1.0 * d2u1(1, I, j) / Re 
-                        - ((uxi_3d(1,I,j) * 0.5 * (u(1,I+1,j) - u(1,I-1,j)) / dxi(0)) 
-                        + uet_3d(1,I,j) * (3.0 * u(1,I,j) - 4 * u(1,I,jnn) + u(1,I,jnn2)) / (2 * dxi(1))) 
-                        - ((u(1,I,j) - uold(1,I,j)) / dt) 
-                        + Ri * u(2,I,j));
+                    p_data[idx] = p_data[i * STRIDE_I + (j - 1)] + (dp_dx * (-dxiy_data[idx] * ajac_data[idx]) + dp_dy * (dxix_data[idx] * ajac_data[idx])) * dxi_data[1];
+                } else {
+                    // Gresho's condition
+                    p_data[idx] = 0.5 * (1.0 / Re) * ((3.0 * uet_data[idx] - 4.0 * uet_data[i * STRIDE_I + (j - 1)] + uet_data[i * STRIDE_I + (j - 2)]) / dxi_data[1]);
+                }
 
-            // Apply condition using where for pressure
-            I = blitz::Range(0, n[0]-2);
-            p(I, j) = where(vnn2(I) >= 0,
-                            p(I, j-1) + (dp_dx1(I,j) * (-dxiy(I,j) * ajac(I,j)) + dp_dy1(I,j) * (dxix(I,j) * ajac(I,j))) * dxi(1),
-                            0.5 * (1.0 / Re) * ((3 * uet(I,j) - 4 * uet(I, jnn) + uet(I, jnn2)) / dxi(1)));
-
-            // Periodic copy
-            p(n[0]-1, j) = p(0, j);
+                if (i == 0) p_data[(n[0] - 1) * STRIDE_I + j] = p_data[idx];
+            }
 
             // ----------------------------------
             // -----calculation of si
             // ----------------------------------
-            // std::cout << "Calculating si..." << std::endl;
-            blitz::Array<double,2> ca{n[0],n[1]};
-            blitz::Array<double,2> cb{n[0],n[1]};
-
+            // cout << "Calculating si..." << endl;
             j = 0;
-            I = blitz::Range(0,n[0]-1);
-            si(I,j) = 0;
+            for (int i = 0; i < n[0]; i++) {
+                si_data[i * STRIDE_I + j] = 0.0;
+            }
 
-            J = blitz::Range(1,n[1]-1);
-            
+            for (int i = 0; i < n[0]; i++) {
+                for (int jj = 1; jj < n[1]; jj++) {
+                    int idx = i * STRIDE_I + jj;
+                    int idx_jm1 = i * STRIDE_I + (jj - 1);
 
-            ca(I,J) = (dxix(I,J) * u(0,I,J) * fabs(ajac(I,J)) + dxix(I,J-1) * u(0,I,J-1) * fabs(ajac(I,J-1)));
-            cb(I,J) = (dxix(I,J) * u(1,I,J) * fabs(ajac(I,J)) + dxix(I,J-1) * u(1,I,J-1) * fabs(ajac(I,J-1)));
-            
-            si(I,J) = si(I,J-1) + (ca(I,J) + cb(I,J)) * 0.5 * dxi(1);
+                    double ca = dxix_data[idx] * u_data[i * STRIDE_I + jj] * fabs(ajac_data[idx])
+                            + dxix_data[idx_jm1] * u_data[i * STRIDE_I + (jj - 1)] * fabs(ajac_data[idx_jm1]);
+                    double cb = dxiy_data[idx] * u_data[i * STRIDE_I + jj + STRIDE_K] * fabs(ajac_data[idx])
+                            + dxiy_data[idx_jm1] * u_data[i * STRIDE_I + (jj - 1) + STRIDE_K] * fabs(ajac_data[idx_jm1]);
 
-            // // ----------------------------
-            // // DILATION AND VORTICITY
-            // // ----------------------------
+                    si_data[idx] = si_data[idx_jm1] + (ca + cb) * 0.5 * dxi_data[1];
+                }
+            }
 
-            I = blitz::Range(0,n[0]-2);
-            J = blitz::Range(1,n[1]-2);
+            // ----------------------------
+            // DILATION AND VORTICITY
+            // ----------------------------
+            // cout << "Calculating dilation and vorticity..." << endl;
+
             dmax = 0.0;
+            for (int i = 0; i < n[0] - 1; i++) {
+                for (int jj = 1; jj < n[1] - 1; jj++) {
+                    int idx = i * STRIDE_I + jj;
 
-            // ------i = 0 -----------------------------------------------------
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
+                    inn = (i == 0) ? n[0] - 2 : i - 1;
+                    ipp = i + 1;
+                    jpp = jj + 1;
+                    jnn = jj - 1;
 
-            dil(i,J) = dxix(i,J) * (u(0,ipp,J) - u(0,inn,J)) / (2 * dxi(0)) + 
-                                dex(i,J) * (u(0,i,J+1) - u(0,i,J-1)) / (2 * dxi(1)) + 
-                                dey(i,J) * (u(1,i,J+1) - u(1,i,J-1)) / (2 * dxi(1)) + 
-                                dxiy(i,J) * (u(1,ipp,J) - u(1,inn,J)) / (2 * dxi(0));
-   
-            vort(i,J) = (
-                            dxix(i,J) * (0.5 / dxi(0) * (u(1,ipp,J) - u(1,inn,J))) 
-                            + dex(i,J) * (0.5 / dxi(1) * (u(1,i,J+1) - u(1,i,J-1)))
-                        ) 
-                        - (
-                            dxiy(i,J) * (0.5 / dxi(0) * (u(0,ipp,J) - u(0,inn,J))) 
-                            + dey(i,J) * (0.5 / dxi(1) * (u(0,i,J+1) - u(0,i,J-1)))
-                          );
-            
-            // ------i є [1,n[0]-2]----------------------------------------------
-            I = blitz::Range(1,n[0]-2);
+                    int ipp_j = ipp * STRIDE_I + jj;
+                    int inn_j = inn * STRIDE_I + jj;
+                    int i_jpp = i * STRIDE_I + jpp;
+                    int i_jnn = i * STRIDE_I + jnn;
 
-            dil(I,J) = dxix(I,J) * (u(0,I+1,J) - u(0,I-1,J)) / (2 * dxi(0)) + 
-                                dex(I,J) * (u(0,I,J+1) - u(0,I,J-1)) / (2 * dxi(1)) + 
-                                dey(I,J) * (u(1,I,J+1) - u(1,I,J-1)) / (2 * dxi(1)) + 
-                                dxiy(I,J) * (u(1,I+1,J) - u(1,I-1,J)) / (2 * dxi(0));  
-            
-            vort(I,J) = (
-                            dxix(I,J) * (0.5 / dxi(0) * (u(1,I+1,J) - u(1,I-1,J))) 
-                            + dex(I,J) * (0.5 / dxi(1) * (u(1,I,J+1) - u(1,I,J-1)))
-                        )
-                        - (
-                            dxiy(I,J) * (0.5 / dxi(0) * (u(0,I+1,J) - u(0,I-1,J))) 
-                            + dey(I,J) * (0.5 / dxi(1) * (u(0,I,J+1) - u(0,I,J-1)))
-                          );
-            //--------------------------------------------------------------------------
+                    dil_data[idx] = dxix_data[idx] * (u_data[ipp_j] - u_data[inn_j]) / (2.0 * dxi_data[0])
+                            + dex_data[idx] * (u_data[i_jpp] - u_data[i_jnn]) / (2.0 * dxi_data[1])
+                            + dey_data[idx] * (u_data[i * STRIDE_I + jpp + STRIDE_K] - u_data[i * STRIDE_I + jnn + STRIDE_K]) / (2.0 * dxi_data[1])
+                            + dxiy_data[idx] * (u_data[ipp_j + STRIDE_K] - u_data[inn_j + STRIDE_K]) / (2.0 * dxi_data[0]);
 
-            dil(n[0] - 1,J) = dil(0,J);
-            vort(n[0] - 1,J) = vort(0,J);
+                    double dv_dxi = 0.5 / dxi_data[0] * (u_data[ipp_j + STRIDE_K] - u_data[inn_j + STRIDE_K]);
+                    double dv_det = 0.5 / dxi_data[1] * (u_data[i * STRIDE_I + jpp + STRIDE_K] - u_data[i * STRIDE_I + jnn + STRIDE_K]);
+                    double dv_dx = dxix_data[idx] * dv_dxi + dex_data[idx] * dv_det;
 
-            I = blitz::Range(0,n[0]-2);
-            // Maximum Dilation
-            dmax = max(dil(I,J));
+                    double du_dxi = 0.5 / dxi_data[0] * (u_data[ipp_j] - u_data[inn_j]);
+                    double du_det = 0.5 / dxi_data[1] * (u_data[i_jpp] - u_data[i_jnn]);
+                    double du_dy = dxiy_data[idx] * du_dxi + dey_data[idx] * du_det;
 
-            //-----------------------------------------------------------------
-            
+                    vort_data[idx] = dv_dx - du_dy;
 
-            // j = 0 boundary
-            j = 0;
-            jpp = j + 1;
+                    if (i == 0) {
+                        int idx_last = (n[0] - 1) * STRIDE_I + jj;
+                        dil_data[idx_last] = dil_data[idx];
+                        vort_data[idx_last] = vort_data[idx];
+                    }
 
-            // ------i = 0 -----------------------------------------------------
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
+                    if (dil_data[idx] > dmax) dmax = dil_data[idx];
+                }
+            }
 
+            for (int jj = 0; jj < n[1]; jj += n[1] - 1) {
+                for (int i = 0; i < n[0] - 1; i++) {
+                    int idx = i * STRIDE_I + jj;
 
-            vort(i,j) = (
-                            dxix(i,j) * (0.5 / dxi(0) * (u(1,ipp,j) - u(1,inn,j)))
-                            + dex(i,j) * (1.0 / dxi(1) * (u(1,i,jpp) - u(1,i,j))) 
-                        )
-                        - ( 
-                            dxiy(i,j) * (0.5 / dxi(0) * (u(0,ipp,j) - u(0,inn,j))) 
-                            + dey(i,j) * (1.0 / dxi(1) * (u(0,i,jpp) - u(0,i,j)))
-                          );
+                    inn = (i == 0) ? n[0] - 2 : i - 1;
+                    ipp = i + 1;
+                    jpp = jj + 1;
+                    jnn = jj - 1;
 
-            vort(n[0]-1,j) = vort(i,j);
+                    double dv_dxi = 0.5 / dxi_data[0] * (u_data[ipp * STRIDE_I + jj + STRIDE_K] - u_data[inn * STRIDE_I + jj + STRIDE_K]);
+                    double dv_det;
+                    if (jj == 0) dv_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jpp + STRIDE_K] - u_data[i * STRIDE_I + jj + STRIDE_K]);
+                    if (jj == n[1] - 1) dv_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jj + STRIDE_K] - u_data[i * STRIDE_I + jnn + STRIDE_K]);
 
-            // ------i є [1,n[0]-2]----------------------------------------------
-            I = blitz::Range(1,n[0]-2);
+                    double dv_dx = dxix_data[idx] * dv_dxi + dex_data[idx] * dv_det;
 
-            vort(I,j) = (
-                            dxix(I,j) * (0.5 / dxi(0) * (u(1,I+1,j) - u(1,I-1,j)))
-                            + dex(I,j) * (1.0 / dxi(1) * (u(1,I,jpp) - u(1,I,j))) 
-                        )
-                        - ( 
-                            dxiy(I,j) * (0.5 / dxi(0) * (u(0,I+1,j) - u(0,I-1,j))) 
-                            + dey(I,j) * (1.0 / dxi(1) * (u(0,I,jpp) - u(0,I,j)))
-                          );
+                    double du_dxi = 0.5 / dxi_data[0] * (u_data[ipp * STRIDE_I + jj] - u_data[inn * STRIDE_I + jj]);
+                    double du_det;
+                    if (jj == 0) du_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jpp] - u_data[i * STRIDE_I + jj]);
+                    if (jj == n[1] - 1) du_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jj] - u_data[i * STRIDE_I + jnn]);
 
+                    double du_dy = dxiy_data[idx] * du_dxi + dey_data[idx] * du_det;
 
-            // j = n[1] - 1 boundary
-            j = n[1] - 1;
-            jnn = j - 1;
+                    vort_data[idx] = dv_dx - du_dy;
 
-            // ------i = 0 -----------------------------------------------------
-            i = 0;
-            ipp = i + 1;
-            inn = n[0] - 2;
+                    if (i == 0) vort_data[(n[0] - 1) * STRIDE_I + jj] = vort_data[idx];
+                }
+            }
 
-
-            vort(i,j) = (
-                            dxix(i,j) * (0.5 / dxi(0) * (u(1,ipp,j) - u(1,inn,j)))
-                            + dex(i,j) * (1.0 / dxi(1) * (u(1,i,jpp) - u(1,i,j))) 
-                        )
-                        - ( 
-                            dxiy(i,j) * (0.5 / dxi(0) * (u(0,ipp,j) - u(0,inn,j))) 
-                            + dey(i,j) * (1.0 / dxi(1) * (u(0,i,jpp) - u(0,i,j)))
-                          );
-
-            vort(n[0]-1,j) = vort(i,j);
-
-            // ------i є [1,n[0]-2]----------------------------------------------
-            I = blitz::Range(1,n[0]-2);
-
-            vort(I,j) = (
-                            dxix(I,j) * (0.5 / dxi(0) * (u(1,I+1,j) - u(1,I-1,j)))
-                            + dex(I,j) * (1.0 / dxi(1) * (u(1,I,jpp) - u(1,I,j))) 
-                        )
-                        - ( 
-                            dxiy(I,j) * (0.5 / dxi(0) * (u(0,I+1,j) - u(0,I-1,j))) 
-                            + dey(I,j) * (1.0 / dxi(1) * (u(0,I,jpp) - u(0,I,j)))
-                          );
-
-            std::cout << loop << " " << dmax << std::endl;
-            
-            // // =========================================================
-            // // Calculation of lift,drag,moment and Nusselt number
-            // // =========================================================
-            // // ----------------------------------------------------
-            // // calculating pressure and vorticity surface integrals
-            // // for forces
-            // // ----------------------------------------------------
-            // j = 0;
-
-            // double pr_x = 0.0;
-            // double pr_y = 0.0;
-            // double vor_x = 0.0;
-            // double vor_y = 0.0;
-
-            // for(int i = 0; i < n[0] - 1; i++) {
-            //     int ip = i + 1;
-
-            //     double PJ1 = p(i,j) * ajac(i,j);
-            //     double pj2 = p(ip,j) * ajac(ip,j);
-
-            //     double VJ1 = vort(i,j) * ajac(i,j);
-            //     double VJ2 = vort(ip,j) * ajac(ip,j);
-
-            //     double fp1_x = PJ1 * dex(i,j);
-            //     double fp2_x = pj2 * dex(ip,j);
-
-            //     double fp1_y = PJ1 * dey(i,j);
-            //     double fp2_y = pj2 * dey(ip,j);
-
-            //     double fv1_x = VJ1 * dey(i,j);
-            //     double fv2_x = VJ2 * dey(ip,j);
-
-            //     double fv1_y = VJ1 * dex(i,j);
-            //     double fv2_y = VJ2 * dex(ip,j);
-
-            //     pr_x = pr_x + 0.5 * dxi(0) * (fp1_x + fp2_x);
-            //     pr_y = pr_y + 0.5 * dxi(0) * (fp1_y + fp2_y);
-
-            //     vor_x = vor_x + 0.5 * dxi(0) * (fv1_x + fv2_x);
-            //     vor_y = vor_y + 0.5 * dxi(0) * (fv1_y + fv2_y);
-            // }
-
-            // double cx = 2 * pr_x + (2.0 / Re) * vor_x;
-            // double cy = 2 * pr_y - (2.0 / Re) * vor_y;
-
-            // double CL_pr = 2 * pr_y * sin(alpha * Pi / 180.0) - 2 * pr_x * cos(alpha * Pi / 180.0);
-            // double CD_pr = 2 * pr_y * cos(alpha * Pi / 180.0) + 2 * pr_x * sin(alpha * Pi / 180.0);
-            // double CL_vor = -(2.0 / Re) * vor_y * sin(alpha * Pi / 180.0) - (2.0 / Re) * vor_x * cos(alpha * Pi / 180.0);
-            // double CD_vor = -(2.0 / Re) * vor_y * cos(alpha * Pi / 180.0) + (2.0 / Re) * vor_x * sin(alpha * Pi / 180.0);
-
-            // double cl = cy * sin(alpha * Pi / 180.0) - cx * cos(alpha * Pi / 180.0);
-            // double cd = cy * cos(alpha * Pi / 180.0) + cx * sin(alpha * Pi / 180.0);
+            cout << loop << " " << dmax << endl;
 
             // =========================================================
             // Calculation of lift,drag,moment and Nusselt number
             // =========================================================
-            // ----------------------------------------------------
-            // calculating pressure and vorticity surface integrals
-            // for forces
-            // ----------------------------------------------------
-
             j = 0;
-            I = blitz::Range(0, n[0]-2);
 
-            double pr_x = sum(0.5 * dxi(0) * (
-                                                p(I,j) * ajac(I,j) * dex(I,j) 
-                                                + p(I+1,j) * ajac(I+1,j) * dex(I+1,j)
-                                             ));
-            double pr_y = sum(0.5 * dxi(0) * (
-                                                p(I,j) * ajac(I,j) * dey(I,j)
-                                                + p(I+1,j) * ajac(I+1,j) * dey(I+1,j)
-                                             ));
+            double pr_x = 0.0, pr_y = 0.0, vor_x = 0.0, vor_y = 0.0;
 
-            double vor_x = sum(0.5 * dxi(0) * (
-                                                vort(I,j) * ajac(I,j) * dey(I,j)
-                                                + vort(I+1,j) * ajac(I+1,j) * dey(I+1,j)
-                                              ));
-            double vor_y = sum(0.5 * dxi(0) * (
-                                                vort(I,j) * ajac(I,j) * dex(I,j) 
-                                                + vort(I+1,j) * ajac(I+1,j) * dex(I+1,j)
-                                              ));
+            for (int i = 0; i < n[0] - 1; i++) {
+                int ip = i + 1;
+                int i_j = i * STRIDE_I + j;
+                int ip_j = ip * STRIDE_I + j;
 
-            double cx = 2 * pr_x + (2.0 / Re) * vor_x;
-            double cy = 2 * pr_y - (2.0 / Re) * vor_y;
+                double PJ1 = p_data[i_j] * ajac_data[i_j];
+                double PJ2 = p_data[ip_j] * ajac_data[ip_j];
 
-            double CL_pr = 2 * pr_y * sin(alpha * Pi / 180.0) - 2 * pr_x * cos(alpha * Pi / 180.0);
-            double CD_pr = 2 * pr_y * cos(alpha * Pi / 180.0) + 2 * pr_x * sin(alpha * Pi / 180.0);
+                double VJ1 = vort_data[i_j] * ajac_data[i_j];
+                double VJ2 = vort_data[ip_j] * ajac_data[ip_j];
+
+                double fp1_x = PJ1 * dex_data[i_j];
+                double fp2_x = PJ2 * dex_data[ip_j];
+                double fp1_y = PJ1 * dey_data[i_j];
+                double fp2_y = PJ2 * dey_data[ip_j];
+
+                double fv1_x = VJ1 * dey_data[i_j];
+                double fv2_x = VJ2 * dey_data[ip_j];
+                double fv1_y = VJ1 * dex_data[i_j];
+                double fv2_y = VJ2 * dex_data[ip_j];
+
+                pr_x += 0.5 * dxi_data[0] * (fp1_x + fp2_x);
+                pr_y += 0.5 * dxi_data[0] * (fp1_y + fp2_y);
+
+                vor_x += 0.5 * dxi_data[0] * (fv1_x + fv2_x);
+                vor_y += 0.5 * dxi_data[0] * (fv1_y + fv2_y);
+            }
+
+            double cx = 2.0 * pr_x + (2.0 / Re) * vor_x;
+            double cy = 2.0 * pr_y - (2.0 / Re) * vor_y;
+
+            double CL_pr = 2.0 * pr_y * sin(alpha * Pi / 180.0) - 2.0 * pr_x * cos(alpha * Pi / 180.0);
+            double CD_pr = 2.0 * pr_y * cos(alpha * Pi / 180.0) + 2.0 * pr_x * sin(alpha * Pi / 180.0);
             double CL_vor = -(2.0 / Re) * vor_y * sin(alpha * Pi / 180.0) - (2.0 / Re) * vor_x * cos(alpha * Pi / 180.0);
             double CD_vor = -(2.0 / Re) * vor_y * cos(alpha * Pi / 180.0) + (2.0 / Re) * vor_x * sin(alpha * Pi / 180.0);
 
             double cl = cy * sin(alpha * Pi / 180.0) - cx * cos(alpha * Pi / 180.0);
             double cd = cy * cos(alpha * Pi / 180.0) + cx * sin(alpha * Pi / 180.0);
 
-            // // -------------------------------------------------------
-            // // calculating surface pressure,vorticity and temp. integrals
-            // // for moment coefficient and Nusselt number
-            // // -------------------------------------------------------
-            // double press_i = 0.0;
-            // double vor_i = 0.0;
-            // double temp_i = 0.0;
+            // moment & Nusselt terms
+            double press_i = 0.0, vor_i = 0.0, temp_i = 0.0;
 
-            // for(int i = 0; i < n[0] - 1; i++) {
-            //     int ip = i + 1;
+            for (int i = 0; i < n[0] - 1; i++) {
+                int ip = i + 1;
+                int i_j = i * STRIDE_I + j;
+                int ip_j = ip * STRIDE_I + j;
 
-            //     double PJ1 = p(i,j) * ajac(i,j);
-            //     double pj2 = p(ip,j) * ajac(ip,j);
+                double PJ1 = p_data[i_j] * ajac_data[i_j];
+                double PJ2 = p_data[ip_j] * ajac_data[ip_j];
 
-            //     double VJ1 = vort(i,j) * ajac(i,j);
-            //     double VJ2 = vort(ip,j) * ajac(ip,j);
+                double VJ1 = vort_data[i_j] * ajac_data[i_j];
+                double VJ2 = vort_data[ip_j] * ajac_data[ip_j];
 
-            //     double TJ1 = ajac(i,j) * (dex(i,j) * dex(i,j) + dey(i,j) * dey(i,j));
-            //     double TJ2 = ajac(ip,j) * (dex(ip,j) * dex(ip,j) + dey(ip,j) * dey(ip,j));
+                double TJ1 = ajac_data[i_j] * (dex_data[i_j] * dex_data[i_j] + dey_data[i_j] * dey_data[i_j]);
+                double TJ2 = ajac_data[ip_j] * (dex_data[ip_j] * dex_data[ip_j] + dey_data[ip_j] * dey_data[ip_j]);
 
-            //     double fp1 = PJ1 * (x(0,i,j) * dey(i,j) - x(1,i,j) * dex(i,j));
-            //     double fp2 = pj2 * (x(0,ip,j) * dey(ip,j) - x(1,ip,j) * dex(ip,j));
+                double fp1 = PJ1 * (x_data[i * STRIDE_I + j] * dey_data[i_j] - x_data[STRIDE_K + i * STRIDE_I + j] * dex_data[i_j]);
+                double fp2 = PJ2 * (x_data[ip * STRIDE_I + j] * dey_data[ip_j] - x_data[STRIDE_K + ip * STRIDE_I + j] * dex_data[ip_j]);
 
-            //     double fv1 = VJ1 * (x(0,i,j) * dex(i,j) + x(1,i,j) * dey(i,j));
-            //     double fv2 = VJ2 * (x(0,ip,j) * dex(ip,j) + x(1,ip,j) * dey(ip,j));
+                double fv1 = VJ1 * (x_data[i * STRIDE_I + j] * dex_data[i_j] + x_data[STRIDE_K + i * STRIDE_I + j] * dey_data[i_j]);
+                double fv2 = VJ2 * (x_data[ip * STRIDE_I + j] * dex_data[ip_j] + x_data[STRIDE_K + ip * STRIDE_I + j] * dey_data[ip_j]);
 
-            //     double fh1 = TJ1 * (4 * u(2,i,j+1) - 3 * u(2,i,j) - u(2,i,j+2)) / (2 * dxi(1));
-            //     double fh2 = TJ2 * (4 * u(2,ip,j+1) - 3 * u(2,ip,j) - u(2,ip,j+2)) / (2 * dxi(1));
+                double fh1 = TJ1 * (4.0 * u_data[2 * STRIDE_K + i * STRIDE_I + (j + 1)]
+                            - 3.0 * u_data[2 * STRIDE_K + i * STRIDE_I + j]
+                            - u_data[2 * STRIDE_K + i * STRIDE_I + (j + 2)]) / (2.0 * dxi_data[1]);
+                double fh2 = TJ2 * (4.0 * u_data[2 * STRIDE_K + ip * STRIDE_I + (j + 1)]
+                            - 3.0 * u_data[2 * STRIDE_K + ip * STRIDE_I + j]
+                            - u_data[2 * STRIDE_K + ip * STRIDE_I + (j + 2)]) / (2.0 * dxi_data[1]);
 
-            //     press_i = press_i + 0.5 * dxi(0) * (fp1 + fp2);
-            //     vor_i = vor_i + 0.5 * dxi(0) * (fv1 + fv2);
-            //     temp_i = temp_i + 0.5 * (fh1 + fh2) * dxi(0);
-            // }
+                press_i += 0.5 * dxi_data[0] * (fp1 + fp2);
+                vor_i += 0.5 * dxi_data[0] * (fv1 + fv2);
+                temp_i += 0.5 * (fh1 + fh2) * dxi_data[0];
+            }
 
-            // double cm = 2 * press_i - (2.0 / Re) * vor_i;
-            // double Nuss = (2 * temp_i) / (Pi * (3 * (1 + (1.0 / ar)) - sqrt((3 + (1.0 / ar)) * ((3.0 / ar) + 1))));
-            
-            // -------------------------------------------------------
-            // calculating surface pressure,vorticity and temp. integrals
-            // for moment coefficient and Nusselt number
-            // -------------------------------------------------------
-
-            j = 0;
-            I = blitz::Range(0, n[0]-2);
-
-            double press_i = sum(0.5 * dxi(0) 
-                                    * (
-                                        p(I,j) * ajac(I,j) * (x(0,I,j) * dey(I,j) - x(1,I,j) * dex(I,j)) 
-                                        + p(I+1,j) * ajac(I+1,j) * (x(0,I+1,j) * dey(I+1,j) - x(1,I+1,j) * dex(I+1,j))
-                                      ));
-            double vor_i = sum(0.5 * dxi(0) * (
-                                                vort(I,j) * ajac(I,j) * (x(0,I,j) * dex(I,j) + x(1,I,j) * dey(I,j))
-                                                + vort(I+1,j) * ajac(I+1,j) * (x(0,I+1,j) * dex(I+1,j) + x(1,I+1,j) * dey(I+1,j))
-                                              ));
-            double temp_i = sum(0.5 * (
-                                        ajac(I,j) * (dex(I,j) * dex(I,j) + dey(I,j) * dey(I,j)) 
-                                            * (4 * u(2,I,j+1) - 3 * u(2,I,j) - u(2,I,j+2)) / (2 * dxi(1)) 
-                                        + ajac(I+1,j) * (dex(I+1,j) * dex(I+1,j) + dey(I+1,j) * dey(I+1,j)) 
-                                            * (4 * u(2,I+1,j+1) - 3 * u(2,I+1,j) - u(2,I+1,j+2)) / (2 * dxi(1))
-                                        * dxi(0)
-                                      ));
-
-            double cm = 2 * press_i - (2.0 / Re) * vor_i;
-            double Nuss = (2 * temp_i) / (Pi * (3 * (1 + (1.0 / ar)) - sqrt((3 + (1.0 / ar)) * ((3.0 / ar) + 1))));
-
+            double cm = 2.0 * press_i - (2.0 / Re) * vor_i;
+            double Nuss = (2.0 * temp_i) / (Pi * (3.0 * (1.0 + (1.0 / ar)) - sqrt((3.0 + (1.0 / ar)) * ((3.0 / ar) + 1.0))));
 
             // ----------------------------------------------------------
             // FILE WRITING
             // ----------------------------------------------------------
-            // std::cout << "Writing output files..." << std::endl;
-            if(loop % 100 == 0) {
+            if (loop % 500 == 0) {
+                ofstream file1("spt100.dat");
+                file1 << "zone" << endl;
+                file1 << "I=" << n[0] << endl;
+                file1 << "J=" << n[1] << endl;
 
-                std::ofstream file1("spt100.dat");
-                file1 << "zone" << std::endl;
-                file1 << "I=" << n[0] << std::endl;
-                file1 << "J=" << n[1] << std::endl;
-                
-                for(int j = 0; j < n[1]; j++) {
-                    for(int i = 0; i < n[0]; i++) {
-                        file1 << std::fixed << std::setprecision(9) << x(0,i,j) << " " << x(1,i,j) << " "
-                            << std::scientific << std::setprecision(13) << u(0,i,j) << " " << u(1,i,j) << " " 
-                            << u(2,i,j) << " " << p(i,j) << " " << si(i,j) << " " << vort(i,j) << std::endl;
+                for (int j = 0; j < n[1]; j++) {
+                    int idx_base = j;
+                    int x0_base = j;
+                    int x1_base = j + STRIDE_K;
+                    int u0_base = j;
+                    int u1_base = j + STRIDE_K;
+                    int u2_base = j + 2 * STRIDE_K;
+
+                    for (int i = 0; i < n[0]; i++) {
+                        file1 << fixed << setprecision(9) << x_data[x0_base] << " " << x_data[x1_base] << " "
+                            << scientific << setprecision(13) << u_data[u0_base] << " " << u_data[u1_base] << " "
+                            << u_data[u2_base] << " " << p_data[idx_base] << " " << si_data[idx_base] << " " << vort_data[idx_base] << endl;
+
+                        idx_base += STRIDE_I;
+                        x0_base += STRIDE_I;
+                        x1_base += STRIDE_I;
+                        u0_base += STRIDE_I;
+                        u1_base += STRIDE_I;
+                        u2_base += STRIDE_I;
                     }
-                    file1 << std::endl;
+                    file1 << endl;
                 }
                 file1.close();
 
-                std::ofstream file2("spa100.dat", std::ios::binary);
+                ofstream file2("spa100.dat", ios::binary);
                 file2.write(reinterpret_cast<char*>(&loop), sizeof(loop));
                 file2.write(reinterpret_cast<char*>(&time), sizeof(time));
                 file2.write(reinterpret_cast<char*>(&dmax), sizeof(dmax));
-                
-                // Write Blitz++ arrays as binary data (already vectorized - writes contiguous memory)
-                file2.write(reinterpret_cast<char*>(x.data()), x.size() * sizeof(double));
-                file2.write(reinterpret_cast<char*>(si.data()), si.size() * sizeof(double));
-                file2.write(reinterpret_cast<char*>(u.data()), u.size() * sizeof(double));
-                file2.write(reinterpret_cast<char*>(p.data()), p.size() * sizeof(double));
+
+                // Write arrays as binary data
+                file2.write(reinterpret_cast<char*>(x_data), 2 * np1 * np2 * sizeof(double));
+                file2.write(reinterpret_cast<char*>(si_data), np1 * np2 * sizeof(double));
+                file2.write(reinterpret_cast<char*>(u_data), 3 * np1 * np2 * sizeof(double));
+                file2.write(reinterpret_cast<char*>(p_data), np1 * np2 * sizeof(double));
                 file2.close();
 
-                std::ofstream file3("COEFF_HIS.dat", std::ios::app);
-                file3 << std::fixed << std::setprecision(8) << time << " " << cl << " " << cd << " " 
-                    << cm << " " << Nuss << std::endl;
+                ofstream file3("COEFF_HIS.dat", ios::app);
+                file3 << fixed << setprecision(8) << time << " " << cl << " " << cd << " "
+                    << cm << " " << Nuss << endl;
                 file3.close();
 
-                std::ofstream file4("COEFF_HIS_pr_vor.dat", std::ios::app);
-                file4 << std::fixed << std::setprecision(8) << time << " " << CL_pr << " " << CD_pr << " " 
-                    << CL_vor << " " << CD_vor << std::endl;
+                ofstream file4("COEFF_HIS_pr_vor.dat", ios::app);
+                file4 << fixed << setprecision(8) << time << " " << CL_pr << " " << CD_pr << " "
+                    << CL_vor << " " << CD_vor << endl;
                 file4.close();
 
                 // ================================================================
                 // local nusselt number profile on cylinder
                 // ================================================================
-                // std::cout << "Calculating local Nusselt number profile on cylinder..." << std::endl;
-                std::ofstream file5("SURF_DIST.dat");
-                for(int i = 0; i < n[0]; i++) {
-                    double dthdn = -(4 * u(2,i,1) - 3 * u(2,i,0) - u(2,i,2)) / (2 * dxi(1));
-                    dthdn = dthdn * sqrt(dex(i,0) * dex(i,0) + dey(i,0) * dey(i,0));
-                    
-                    file5 << i * dxi(0) << " " << p(i,0) << " " << vort(i,0) << " " << dthdn << std::endl;
+                ofstream file5("SURF_DIST.dat");
+                int u2_base_0 = 2 * STRIDE_K;
+                int u2_base_1 = 2 * STRIDE_K + 1;
+                int u2_base_2 = 2 * STRIDE_K + 2;
+                int idx_0 = 0;
+
+                for (int i = 0; i < n[0]; i++) {
+                    double dthdn = -(4 * u_data[u2_base_1] - 3 * u_data[u2_base_0] - u_data[u2_base_2]) / (2 * dxi_data[1]);
+                    dthdn = dthdn * sqrt(dex_data[idx_0] * dex_data[idx_0] + dey_data[idx_0] * dey_data[idx_0]);
+
+                    file5 << i * dxi_data[0] << " " << p_data[idx_0] << " " << vort_data[idx_0] << " " << dthdn << endl;
+
+                    u2_base_0 += STRIDE_I;
+                    u2_base_1 += STRIDE_I;
+                    u2_base_2 += STRIDE_I;
+                    idx_0 += STRIDE_I;
                 }
                 file5.close();
             }
@@ -2088,15 +2157,25 @@ public:
 
                     if (nsnap == (maxsnap + 1)) continue;
 
-                    std::ofstream snap_file(snap_filename());  // Adjust for 0-based array indexing
-                    
-                    for(int j = 0; j < n[1]; j++) {
-                        for(int i = 0; i < n[0]; i++) {
-                            snap_file << std::fixed << std::setprecision(9) << x(0,i,j) << " " << x(1,i,j) << " "
-                                    << std::scientific << std::setprecision(5) << si(i,j) << " " 
-                                    << u(2,i,j) << " " << vort(i,j) << std::endl;
+                    ofstream snap_file(filnam[nsnap - 1]);
+
+                    for (int j = 0; j < n[1]; j++) {
+                        int idx_base = j;
+                        int x0_base = j;
+                        int x1_base = j + STRIDE_K;
+                        int u2_base = j + 2 * STRIDE_K;
+
+                        for (int i = 0; i < n[0]; i++) {
+                            snap_file << fixed << setprecision(9) << x_data[x0_base] << " " << x_data[x1_base] << " "
+                                    << scientific << setprecision(5) << si_data[idx_base] << " "
+                                    << u_data[u2_base] << " " << vort_data[idx_base] << endl;
+
+                            idx_base += STRIDE_I;
+                            x0_base += STRIDE_I;
+                            x1_base += STRIDE_I;
+                            u2_base += STRIDE_I;
                         }
-                        snap_file << std::endl;
+                        snap_file << endl;
                     }
                     snap_file.close();
 
@@ -2104,26 +2183,15 @@ public:
                 }
             }
 
-            auto end = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            // start = std::chrono::high_resolution_clock::now();
-            std::cout << "Time taken in Time Loop" << loop << ": " << duration.count() << " ms\n" << std::endl;
+        // auto end = chrono::high_resolution_clock::now();
+        // auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+        // cout << "Time taken in Time Loop: " << duration.count() << " ms" << endl;
 
         }
+
         //END OF TIME LOOP
     }
 
-    std::string snap_filename(){
-        // --------------------------------------------------------
-        // generating filenames for saving the snapshots
-        // --------------------------------------------------------
-        std::string num = std::to_string(snapshot_count);
-        num = std::string(3 - num.length(), '0') + num;
-        snapshot_count++;
-        return "SNAP" + num + ".DAT";
-
-    }
-    
     void sip9p(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, 
             blitz::Array<double, 2>& as, blitz::Array<double, 2>& an, 
             blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
@@ -2131,181 +2199,180 @@ public:
             blitz::Array<double, 2>& anw, blitz::Array<double, 2>& phi, 
             blitz::Array<double, 2>& q){
         
-        //Using class member arrays instead of allocating new ones each call
-        auto& be = sip_be;
-        auto& bw = sip_bw;
-        auto& bs = sip_bs;
-        auto& bn = sip_bn;
-        auto& bse = sip_bse;
-        auto& bne = sip_bne;
-        auto& bnw = sip_bnw;
-        auto& bsw = sip_bsw;
-        auto& bp = sip_bp;
-        auto& res = sip_res;
-        auto& qp = sip_qp;
-        auto& del = sip_del;
-        auto& phio = sip_phio;
+        // Get data pointers for contiguous access
+        double* ap_data = ap.data();
+        double* ae_data = ae.data();
+        double* as_data = as.data();
+        double* an_data = an.data();
+        double* aw_data = aw.data();
+        double* ase_data = ase.data();
+        double* asw_data = asw.data();
+        double* ane_data = ane.data();
+        double* anw_data = anw.data();
+        double* phi_data = phi.data();
+        double* q_data = q.data();
+        
+        // Use class member arrays - get their data pointers
+        double* be = sip_be.data();
+        double* bw = sip_bw.data();
+        double* bs = sip_bs.data();
+        double* bn = sip_bn.data();
+        double* bse = sip_bse.data();
+        double* bne = sip_bne.data();
+        double* bnw = sip_bnw.data();
+        double* bsw = sip_bsw.data();
+        double* bp = sip_bp.data();
+        double* qp = sip_qp.data();
+        double* del = sip_del.data();
         
         double tol = 0.75e-2;
         int maxiter = 100000;
         double alp = 0.92;
-        double sumnor = 1.0;  //Initialize to avoid uninitialized variable
+        double sumnor = 0.0;
         
-        // Initialize arrays
-        for (int i = 0; i < n[0]; i++) {
-            for (int j = 0; j < n[1]; j++) {
-                bsw(i,j) = 0.0;
-                bn(i,j) = 0.0;
-                bs(i,j) = 0.0;
-                bse(i,j) = 0.0;
-                bnw(i,j) = 0.0;
-                bne(i,j) = 0.0;
-                be(i,j) = 0.0;
-                bw(i,j) = 0.0;
-                bp(i,j) = 0.0;
-            }
-        }
+        // Initialize arrays to zero
+        memset(be, 0, np1 * np2 * sizeof(double));
+        memset(bw, 0, np1 * np2 * sizeof(double));
+        memset(bs, 0, np1 * np2 * sizeof(double));
+        memset(bn, 0, np1 * np2 * sizeof(double));
+        memset(bse, 0, np1 * np2 * sizeof(double));
+        memset(bne, 0, np1 * np2 * sizeof(double));
+        memset(bnw, 0, np1 * np2 * sizeof(double));
+        memset(bsw, 0, np1 * np2 * sizeof(double));
+        memset(bp, 0, np1 * np2 * sizeof(double));
+        memset(qp, 0, np1 * np2 * sizeof(double));
+        memset(del, 0, np1 * np2 * sizeof(double));
         
-        // Forward elimination - compute L and U matrices
+        // Forward elimination - compute L and U matrices (only once)
         for (int i = 0; i < n[0]-1; i++) {
-            //Calculate indices once per i iteration
+            int row_base = i * STRIDE_I + 1;
+            
             int inn = (i == 0) ? n[0]-2 : i-1;
-            int ipp = i+1;
-            bool is_first_row = (i == 0);
+            int row_inn = inn * STRIDE_I + 1;
+            int row_last = (n[0]-1) * STRIDE_I + 1;
             
             for (int j = 1; j < n[1]-1; j++) {
-                int jpp = j+1;
-                int jnn = j-1;
+                bsw[row_base] = asw_data[row_base];
                 
-                bsw(i,j) = asw(i,j);
+                // Precompute repeated terms
+                double alp_bn_inn = alp * bn[row_inn];
+                double alp_be_prev = alp * be[row_base - 1];
                 
-                bw(i,j) = (aw(i,j) + alp*anw(i,j) - bsw(i,j)*bn(inn,jnn)) / 
-                           (1.0 + alp*bn(inn,j));
+                bw[row_base] = (aw_data[row_base] + alp*anw_data[row_base] - bsw[row_base]*bn[row_inn - 1]) / 
+                        (1.0 + alp_bn_inn);
                 
-                bs(i,j) = (as(i,j) + alp*ase(i,j) - bsw(i,j)*be(inn,jnn)) / 
-                           (1.0 + alp*be(i,jnn));
+                bs[row_base] = (as_data[row_base] + alp*ase_data[row_base] - bsw[row_base]*be[row_inn - 1]) / 
+                        (1.0 + alp_be_prev);
                 
-                double ad = anw(i,j) + ase(i,j) - bs(i,j)*be(i,jnn) - bw(i,j)*bn(inn,j);
+                double ad = anw_data[row_base] + ase_data[row_base] - bs[row_base]*be[row_base - 1] - bw[row_base]*bn[row_inn];
                 
-                bp(i,j) = ap(i,j) - alp*ad - bs(i,j)*bn(i,jnn) - bw(i,j)*be(inn,j) - 
-                           bsw(i,j)*bne(inn,jnn);
+                bp[row_base] = ap_data[row_base] - alp*ad - bs[row_base]*bn[row_base - 1] - bw[row_base]*be[row_inn] - 
+                        bsw[row_base]*bne[row_inn - 1];
                 
-                bn(i,j) = (an(i,j) + alp*anw(i,j) - alp*bw(i,j)*bn(inn,j) - 
-                           bw(i,j)*bne(inn,j)) / bp(i,j);
+                double inv_bp = 1.0 / bp[row_base];  // Precompute division
                 
-                be(i,j) = (ae(i,j) + alp*ase(i,j) - alp*bs(i,j)*be(i,jnn) - 
-                           bs(i,j)*bne(i,jnn)) / bp(i,j);
+                bn[row_base] = (an_data[row_base] + alp*anw_data[row_base] - alp_bn_inn*bw[row_base] - 
+                        bw[row_base]*bne[row_inn]) * inv_bp;
                 
-                bne(i,j) = ane(i,j) / bp(i,j);
+                be[row_base] = (ae_data[row_base] + alp*ase_data[row_base] - alp_be_prev*bs[row_base] - 
+                        bs[row_base]*bne[row_base - 1]) * inv_bp;
+                
+                bne[row_base] = ane_data[row_base] * inv_bp;
+                
+                // Handle periodic boundary - only copy what's needed
+                if (i == 0) {
+                    bsw[row_last] = bsw[row_base];
+                    bn[row_last] = bn[row_base];
+                    bs[row_last] = bs[row_base];
+                    bne[row_last] = bne[row_base];
+                    be[row_last] = be[row_base];
+                    bw[row_last] = bw[row_base];
+                    bp[row_last] = bp[row_base];
+                }
+                
+                row_base++;
+                row_inn++;
+                row_last++;
             }
         }
-        
-        //Handle periodic boundary condition once after loop
-        for (int j = 1; j < n[1]-1; j++) {
-            bsw(n[0]-1,j) = bsw(0,j);
-            bn(n[0]-1,j) = bn(0,j);
-            bs(n[0]-1,j) = bs(0,j);
-            bse(n[0]-1,j) = bse(0,j);
-            bnw(n[0]-1,j) = bnw(0,j);
-            bne(n[0]-1,j) = bne(0,j);
-            be(n[0]-1,j) = be(0,j);
-            bw(n[0]-1,j) = bw(0,j);
-            bp(n[0]-1,j) = bp(0,j);
-        }
-        
-        // Initialize qp and del arrays
-        for (int i = 0; i < n[0]; i++) {
-            for (int j = 0; j < n[1]; j++) {
-                qp(i,j) = 0.0;
-                del(i,j) = 0.0;
-            }
-        }        
-        
+
         // Main iteration loop
         for (int iter = 0; iter < maxiter; iter++) {
-            
-            // Store old phi values
-            for (int i = 0; i < n[0]; i++) {
-                for (int j = 0; j < n[1]; j++) {
-                    phio(i,j) = phi(i,j);
-                }
-            }
-            
             double ssum = 0.0;
             
-            // Forward sweep - compute residual and qp
+            // Combined forward sweep - compute residual and qp together
             for (int i = 0; i < n[0]-1; i++) {
-                //Calculate indices once per i iteration
+                int row_base = i * STRIDE_I + 1;
+                
                 int inn = (i == 0) ? n[0]-2 : i-1;
                 int ipp = i+1;
-                bool is_first_row = (i == 0);
+                int row_inn = inn * STRIDE_I + 1;
+                int row_ipp = ipp * STRIDE_I + 1;
+                int row_last = (n[0]-1) * STRIDE_I + 1;
                 
                 for (int j = 1; j < n[1]-1; j++) {
-                    int jpp = j+1;
-                    int jnn = j-1;
+                    // Compute residual directly (no array storage)
+                    double res = q_data[row_base] - ap_data[row_base]*phi_data[row_base] - 
+                            ae_data[row_base]*phi_data[row_ipp] - an_data[row_base]*phi_data[row_base + 1] - 
+                            as_data[row_base]*phi_data[row_base - 1] - aw_data[row_base]*phi_data[row_inn] - 
+                            anw_data[row_base]*phi_data[row_inn + 1] - ane_data[row_base]*phi_data[row_ipp + 1] - 
+                            asw_data[row_base]*phi_data[row_inn - 1] - ase_data[row_base]*phi_data[row_ipp - 1];
                     
-                    // Compute residual
-                    res(i,j) = q(i,j) - ap(i,j)*phi(i,j) - ae(i,j)*phi(ipp,j) - 
-                                an(i,j)*phi(i,jpp) - as(i,j)*phi(i,jnn) - 
-                                aw(i,j)*phi(inn,j) - anw(i,j)*phi(inn,jpp) - 
-                                ane(i,j)*phi(ipp,jpp) - asw(i,j)*phi(inn,jnn) - 
-                                ase(i,j)*phi(ipp,jnn);
-                    
-                    ssum += fabs(res(i,j));
+                    ssum += fabs(res);
                     
                     // Forward substitution
-                    qp(i,j) = (res(i,j) - bs(i,j)*qp(i,jnn) - bw(i,j)*qp(inn,j) - 
-                               bsw(i,j)*qp(inn,jnn)) / bp(i,j);
+                    qp[row_base] = (res - bs[row_base]*qp[row_base - 1] - 
+                            bw[row_base]*qp[row_inn] - bsw[row_base]*qp[row_inn - 1]) / bp[row_base];
+                    
+                    // Handle periodic boundary
+                    if (i == 0) {
+                        qp[row_last] = qp[row_base];
+                    }
+                    
+                    row_base++;
+                    row_inn++;
+                    row_ipp++;
+                    row_last++;
                 }
             }
             
-            // Handle periodic boundary condition once after loop
-            for (int j = 1; j < n[1]-1; j++) {
-                res(n[0]-1,j) = res(0,j);
-                qp(n[0]-1,j) = qp(0,j);
-            }
-            
-            // Normalize residual for convergence check
-            //sumnor now properly initialized at function start
-            double sumav;
+            // Compute sumnor only on first iteration
             if (iter == 0) {
-                if (ssum != 0.0) {
-                    sumnor = ssum;
-                } else {
-                    sumnor = 1.0;
-                }
+                sumnor = (ssum != 0.0) ? ssum : 1.0;
             }
             
-            sumav = ssum / sumnor;
+            double sumav = ssum / sumnor;
             
             // Backward sweep - update phi values
             for (int i = n[0]-2; i >= 0; i--) {
-                //Calculate indices once per i iteration
-                int inn = (i == 0) ? n[0]-2 : i-1;
+                int row_base = i * STRIDE_I + n[1] - 2;
                 int ipp = i+1;
-                bool is_first_row = (i == 0);
+                int row_ipp = ipp * STRIDE_I + n[1] - 2;
+                bool is_periodic = (i == 0);
+                int row_last = (n[0]-1) * STRIDE_I + n[1] - 2;
                 
                 for (int j = n[1]-2; j >= 1; j--) {
-                    int jpp = j+1;
-                    int jnn = j-1;
-                    
                     // Backward substitution
-                    del(i,j) = qp(i,j) - bn(i,j)*del(i,jpp) - be(i,j)*del(ipp,j) - 
-                                bne(i,j)*del(ipp,jpp);
+                    del[row_base] = qp[row_base] - bn[row_base]*del[row_base + 1] - 
+                            be[row_base]*del[row_ipp] - bne[row_base]*del[row_ipp + 1];
                     
-                    phi(i,j) = phi(i,j) + del(i,j);
+                    phi_data[row_base] += del[row_base];
+                    
+                    // Handle periodic boundary
+                    if (is_periodic) {
+                        phi_data[row_last] = phi_data[row_base];
+                    }
+                    
+                    row_base--;
+                    row_ipp--;
+                    row_last--;
                 }
-            }
-            
-            //Handle periodic boundary condition once after loop
-            for (int j = 1; j < n[1]-1; j++) {
-                phi(n[0]-1,j) = phi(0,j);
             }
 
             // Check convergence
             if (sumav < tol) {
                 break;
-            }
+            }  
         }
     }
 
@@ -2319,6 +2386,35 @@ public:
             blitz::Array<double, 2>& anee, blitz::Array<double, 2>& anww, blitz::Array<double, 2>& aee, 
             blitz::Array<double, 2>& aww, blitz::Array<double, 2>& phi, blitz::Array<double, 2>& q) {
         
+        // Get data pointers for contiguous access
+        double* ap_data = ap.data();
+        double* ae_data = ae.data();
+        double* as_data = as.data();
+        double* an_data = an.data();
+        double* aw_data = aw.data();
+        double* ase_data = ase.data();
+        double* asw_data = asw.data();
+        double* ane_data = ane.data();
+        double* anw_data = anw.data();
+        double* ass_data = ass.data();
+        double* assee_data = assee.data();
+        double* assww_data = assww.data();
+        double* asse_data = asse.data();
+        double* assw_data = assw.data();
+        double* asee_data = asee.data();
+        double* asww_data = asww.data();
+        double* ann_data = ann.data();
+        double* annee_data = annee.data();
+        double* annww_data = annww.data();
+        double* anne_data = anne.data();
+        double* annw_data = annw.data();
+        double* anee_data = anee.data();
+        double* anww_data = anww.data();
+        double* aee_data = aee.data();
+        double* aww_data = aww.data();
+        double* phi_data = phi.data();
+        double* q_data = q.data();
+        
         double tol = 0.75e-2;
         int maxiter = 100000;
         double sumnor = 0.0;
@@ -2326,90 +2422,89 @@ public:
         for (int iter = 0; iter < maxiter; iter++) {
             double ssum = 0.0;
             
-            // SINGLE PASS: Compute residual and update phi together
+            // Combined residual computation and phi update in single pass
             for (int i = 0; i < n[0]-1; i++) {
+                int row_base = i * STRIDE_I + 1;
+                
                 // Calculate neighbor indices ONCE per i
                 int inn = (i == 0) ? n[0]-2 : i-1;
                 int inn2 = (i <= 1) ? ((i == 0) ? n[0]-3 : n[0]-2) : i-2;
                 int ipp = i+1;
                 int ipp2 = (i == n[0]-2) ? 1 : i+2;
                 
+                int row_inn = inn * STRIDE_I + 1;
+                int row_ipp = ipp * STRIDE_I + 1;
+                int row_inn2 = inn2 * STRIDE_I + 1;
+                int row_ipp2 = ipp2 * STRIDE_I + 1;
+                int row_last = (n[0]-1) * STRIDE_I + 1;
+                
                 bool is_first_row = (i == 0);
                 
                 for (int j = 1; j < n[1]-1; j++) {
-                    int jpp = j+1;
-                    int jnn = j-1;
-                    int jpp2 = j+2;
-                    int jnn2 = j-2;
-                    
                     double phi_new;
                     double res;
                     
                     if (j == 1 || j == n[1]-2) {
                         // Second order stencil
-                        // Compute RHS (all terms except ap*phi)
-                        double rhs = q(i,j) - 
-                                ae(i,j)*phi(ipp,j) - 
-                                an(i,j)*phi(i,jpp) - 
-                                as(i,j)*phi(i,jnn) - 
-                                aw(i,j)*phi(inn,j) - 
-                                anw(i,j)*phi(inn,jpp) - 
-                                ane(i,j)*phi(ipp,jpp) - 
-                                asw(i,j)*phi(inn,jnn) - 
-                                ase(i,j)*phi(ipp,jnn);
+                        double rhs = q_data[row_base] - 
+                                ae_data[row_base]*phi_data[row_ipp] - 
+                                an_data[row_base]*phi_data[row_base + 1] - 
+                                as_data[row_base]*phi_data[row_base - 1] - 
+                                aw_data[row_base]*phi_data[row_inn] - 
+                                anw_data[row_base]*phi_data[row_inn + 1] - 
+                                ane_data[row_base]*phi_data[row_ipp + 1] - 
+                                asw_data[row_base]*phi_data[row_inn - 1] - 
+                                ase_data[row_base]*phi_data[row_ipp - 1];
                         
-                        // Residual = RHS - ap*phi_old
-                        res = rhs - ap(i,j)*phi(i,j);
-                        
-                        // New phi value = RHS / ap
-                        phi_new = rhs / ap(i,j);
+                        res = rhs - ap_data[row_base]*phi_data[row_base];
+                        phi_new = rhs / ap_data[row_base];
                         
                     } else {
                         // Fourth order stencil
-                        // Compute RHS (all terms except ap*phi)
-                        double rhs = q(i,j) - 
-                                ae(i,j)*phi(ipp,j) - 
-                                an(i,j)*phi(i,jpp) - 
-                                as(i,j)*phi(i,jnn) - 
-                                aw(i,j)*phi(inn,j) - 
-                                anw(i,j)*phi(inn,jpp) - 
-                                ane(i,j)*phi(ipp,jpp) - 
-                                asw(i,j)*phi(inn,jnn) - 
-                                ase(i,j)*phi(ipp,jnn) - 
-                                aee(i,j)*phi(ipp2,j) - 
-                                aww(i,j)*phi(inn2,j) - 
-                                annee(i,j)*phi(ipp2,jpp2) - 
-                                anee(i,j)*phi(ipp2,jpp) - 
-                                asee(i,j)*phi(ipp2,jnn) - 
-                                assee(i,j)*phi(ipp2,jnn2) - 
-                                anne(i,j)*phi(ipp,jpp2) - 
-                                asse(i,j)*phi(ipp,jnn2) - 
-                                annw(i,j)*phi(inn,jpp2) - 
-                                assw(i,j)*phi(inn,jnn2) - 
-                                annww(i,j)*phi(inn2,jpp2) - 
-                                anww(i,j)*phi(inn2,jpp) - 
-                                asww(i,j)*phi(inn2,jnn) - 
-                                assww(i,j)*phi(inn2,jnn2) - 
-                                ann(i,j)*phi(i,jpp2) - 
-                                ass(i,j)*phi(i,jnn2);
+                        double rhs = q_data[row_base] - 
+                                ae_data[row_base]*phi_data[row_ipp] - 
+                                an_data[row_base]*phi_data[row_base + 1] - 
+                                as_data[row_base]*phi_data[row_base - 1] - 
+                                aw_data[row_base]*phi_data[row_inn] - 
+                                anw_data[row_base]*phi_data[row_inn + 1] - 
+                                ane_data[row_base]*phi_data[row_ipp + 1] - 
+                                asw_data[row_base]*phi_data[row_inn - 1] - 
+                                ase_data[row_base]*phi_data[row_ipp - 1] - 
+                                aee_data[row_base]*phi_data[row_ipp2] - 
+                                aww_data[row_base]*phi_data[row_inn2] - 
+                                annee_data[row_base]*phi_data[row_ipp2 + 2] - 
+                                anee_data[row_base]*phi_data[row_ipp2 + 1] - 
+                                asee_data[row_base]*phi_data[row_ipp2 - 1] - 
+                                assee_data[row_base]*phi_data[row_ipp2 - 2] - 
+                                anne_data[row_base]*phi_data[row_ipp + 2] - 
+                                asse_data[row_base]*phi_data[row_ipp - 2] - 
+                                annw_data[row_base]*phi_data[row_inn + 2] - 
+                                assw_data[row_base]*phi_data[row_inn - 2] - 
+                                annww_data[row_base]*phi_data[row_inn2 + 2] - 
+                                anww_data[row_base]*phi_data[row_inn2 + 1] - 
+                                asww_data[row_base]*phi_data[row_inn2 - 1] - 
+                                assww_data[row_base]*phi_data[row_inn2 - 2] - 
+                                ann_data[row_base]*phi_data[row_base + 2] - 
+                                ass_data[row_base]*phi_data[row_base - 2];
                         
-                        // Residual = RHS - ap*phi_old
-                        res = rhs - ap(i,j)*phi(i,j);
-                        
-                        // New phi value = RHS / ap
-                        phi_new = rhs / ap(i,j);
+                        res = rhs - ap_data[row_base]*phi_data[row_base];
+                        phi_new = rhs / ap_data[row_base];
                     }
                     
-                    // Accumulate residual
                     ssum += fabs(res);
+                    phi_data[row_base] = phi_new;
                     
-                    // Update phi immediately (Gauss-Seidel style)
-                    phi(i,j) = phi_new;
-                    
-                    // Handle periodic boundary condition
+                    // Handle periodic boundary ONCE per j
                     if (is_first_row) {
-                        phi(n[0]-1,j) = phi_new;
+                        phi_data[row_last] = phi_new;
                     }
+                    
+                    row_base++;
+                    row_inn++;
+                    row_ipp++;
+                    row_inn2++;
+                    row_ipp2++;
+                    row_last++;
                 }
             }
             
@@ -2429,7 +2524,21 @@ public:
 };
 
 int main() {
+    auto start = std::chrono::high_resolution_clock::now();
+    clock_t cpu_start = clock();
+    
     Solver solver;
     solver.timeLoop();
+
+    clock_t cpu_end = clock();
+    double cpu_time = double(cpu_end - cpu_start) / CLOCKS_PER_SEC;
+    std::cout << "CPU Time: " << cpu_time << "s\n";
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    // start = std::chrono::high_resolution_clock::now();
+    std::cout << "Wall time: " << duration.count() << " ms\n" << std::endl;
+
+    return 0;
     return 0;
 }
