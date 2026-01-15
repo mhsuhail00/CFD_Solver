@@ -1,6 +1,4 @@
-// solver_3.cpp -> Parallize the work on available Hardware-Threads using OpenMP
-// Auto Parallization using OpenMP
-
+// changed gauss + contigous allocation speed == to fortran code
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -481,8 +479,9 @@ public:
 
     Solver() {
         // SET NUMBER OF THREADS TO MAX AVAILABLE
-        // int num_threads = omp_get_max_threads();  // Usually 4-16, not 100!
-        int num_threads = 10;
+        int num_threads = omp_get_max_threads();
+        // int num_threads = 10;
+        cout << "Num_threads:" << num_threads << endl;
         omp_set_num_threads(num_threads);
 
         // auto start = chrono::high_resolution_clock::now();
@@ -714,26 +713,26 @@ public:
                 u[base] = 1.0;
             }
         
-        // j = 0;
-        // #pragma omp parallel for
-        // for(int i = 0; i < n[0]; i++) {
-        //     int uk_base = i * STRIDE_I + j;  // k=0: 0 * STRIDE_K + i * STRIDE_I + j
-        //     u[uk_base] = -speed_amp * x[STRIDE_K + uk_base];  // x[1][i][j]
-        //     up[uk_base] = u[uk_base];
-        // }
+            // j = 0;
+            // #pragma omp parallel for
+            // for(int i = 0; i < n[0]; i++) {
+            //     int uk_base = i * STRIDE_I + j;  // k=0: 0 * STRIDE_K + i * STRIDE_I + j
+            //     u[uk_base] = -speed_amp * x[STRIDE_K + uk_base];  // x[1][i][j]
+            //     up[uk_base] = u[uk_base];
+            // }
 
-        // #pragma omp parallel for
-        // for(int i = 0; i < n[0]; i++) {
-        //     int uk_base = STRIDE_K + i * STRIDE_I + j;  // k=1: 1 * STRIDE_K + i * STRIDE_I + j
-        //     u[uk_base] = speed_amp * x[uk_base - STRIDE_K];  // x[0][i][j]
-        //     up[uk_base] = u[uk_base];
-        // }
-        
-        // ----------------------------------------------------
-        // setting bc at infinity
-        // ----------------------------------------------------
-        // cout << "Setting boundary conditions at infinity..." << endl;
-        
+            // #pragma omp parallel for
+            // for(int i = 0; i < n[0]; i++) {
+            //     int uk_base = STRIDE_K + i * STRIDE_I + j;  // k=1: 1 * STRIDE_K + i * STRIDE_I + j
+            //     u[uk_base] = speed_amp * x[uk_base - STRIDE_K];  // x[0][i][j]
+            //     up[uk_base] = u[uk_base];
+            // }
+            
+            // ----------------------------------------------------
+            // setting bc at infinity
+            // ----------------------------------------------------
+            // cout << "Setting boundary conditions at infinity..." << endl;
+            
         
             j = n[1]-1;
             int jnn = j-1;
@@ -780,15 +779,11 @@ public:
             u[last_idx + 2*STRIDE_K] = u[u2_base_0];
 
             // forming coeff matrix for velocity
-            #pragma omp for schedule(static)
+            #pragma omp for schedule(static) nowait
             for(int i = 0; i < n[0]-1; i++) {
                 // Each thread calculates its own row_base
                 int row_base = i * STRIDE_I + 1;  // Start at j=1
                 int row_last = (n[0]-1) * STRIDE_I + 1;  // For periodic BC copy
-                
-                // Determine neighbor row indices (same for all j in this row)
-                int inn = (i == 0) ? n[0]-2 : i-1;
-                int ipp = i+1;
                 
                 // Inner j loop remains sequential (within each thread)
                 for(int j = 1; j < n[1]-1; j++, row_base++, row_last++) {
@@ -973,7 +968,7 @@ public:
             }
     
             // Forming pressure matrix
-            #pragma omp for schedule(static)
+            #pragma omp for schedule(static) nowait
             for(int i = 0; i < n[0]-1; i++) {
                 // Each thread calculates its own row indices
                 int row_base = i * STRIDE_I + 1;  // Start at j=1
@@ -1110,7 +1105,7 @@ public:
         // cout << "Starting time loop..." << endl;        
         // Outer loop
 
-        // auto start = chrono::high_resolution_clock::now();
+        auto start = chrono::high_resolution_clock::now();
 
         for(loop=0; loop<MAXSTEP; loop++){
             time = time + dt;
@@ -1137,7 +1132,8 @@ public:
             // Convection term
             // k loop starts
             // cout << "Calculating convection term..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            // #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for(int i=0; i<n[0]-1; i++) {
                 // Each thread gets its own stack copy of conv
                 double conv[3];
@@ -1405,6 +1401,7 @@ public:
                 }
             }
 
+
             gauss(aup, aue, aus, aun, auw, ause, ausw, aune, aunw, auss, aussee,
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qu);
@@ -1598,7 +1595,8 @@ public:
             // calculation of star velocities at i+-1/2 and j+-1/2
             // ----------------------------------------------------------
             // cout << "Calculating star velocities at i+-1/2 and j+-1/2..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            // #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0] - 1; i++) {
                 int row_base = i * STRIDE_I + 1;
                 
@@ -1699,6 +1697,9 @@ public:
 
             sip9p(ap, ae, as, an, aw, ase, asw, ane, anw, pcor, q);
 
+            // cout << "Halu......" << endl;
+
+
             // ------apply boundary condition on Pcor
             // cout << "Applying boundary condition on pcor..." << endl;
             if (norm == 1) {
@@ -1743,7 +1744,8 @@ public:
             // -----updating U and V from Pcor in the interior
             // ---------------------------------------------------------
             // cout << "Updating U and V from pcor in the interior..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            // #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0] - 1; i++) {
                 int row_base = i * STRIDE_I + 1;
                 
@@ -1973,7 +1975,8 @@ public:
             }
             // at solid boundary
             // cout << "Applying at solid boundary..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            // #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 // Thread-private arrays
                 double conv[3], d2u[3], alc[3];
@@ -2036,7 +2039,8 @@ public:
             }
 
             // at exit boundary
-            #pragma omp parallel for schedule(dynamic, 4)
+            // #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 // Thread-private arrays
                 double conv[3], d2u[3], alc[3];
@@ -2132,7 +2136,8 @@ public:
             // DILATION AND VORTICITY
             // ----------------------------
             dmax = 0.0;
-            #pragma omp parallel for reduction(max:dmax) schedule(dynamic, 4)
+            // #pragma omp parallel for reduction(max:dmax) schedule(dynamic, 4)
+            #pragma omp parallel for reduction(max:dmax) schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 double dmax_local = 0.0;
                 
@@ -2413,9 +2418,9 @@ public:
                 }
             }
 
-        // auto end = chrono::high_resolution_clock::now();
-        // auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-        // cout << "Time taken in Time Loop " << loop << ": " << duration.count() << " ms" << endl;
+        auto end = chrono::high_resolution_clock::now();
+        auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+        cout << "Time taken in Time Loop " << loop << ": " << duration.count() << " ms" << endl;
 
         } 
     } //END OF TIME LOOP 
@@ -2504,9 +2509,11 @@ public:
                 }
             }
         }
+        // cout << "Halu......" << endl;
         
         delete[] inn_arr;
         delete[] ipp_arr;
+
         // Main iteration loop
         for (int iter = 0; iter < maxiter; iter++) {
             double ssum = 0.0;
@@ -2546,7 +2553,7 @@ public:
             
             // Compute sumnor only on first iteration
             if (iter == 0) {
-                #pragma omp single
+                // #pragma omp single
                 sumnor = (ssum != 0.0) ? ssum : 1.0;
             }
             
@@ -2582,7 +2589,7 @@ public:
                 break;
             }  
         }
-        
+
         // Clean up local arrays
         delete[] be; delete[] bw; delete[] bs; delete[] bn;
         delete[] bse; delete[] bne; delete[] bnw; delete[] bsw;

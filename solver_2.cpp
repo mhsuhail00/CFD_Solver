@@ -1642,11 +1642,11 @@ public:
                 for(int i = 0; i < n[0]; i++) {
 
                     if(k == 0) {
-                        u[k][i][j] = -speed_amp * cos(2.0 * Pi * F * time) * x[1][i][j];      // line edited
+                        u[k][i][j] = -speed_amp * cos(2.0 * Pi * F * time) * x[1][i][j];
                         up[k][i][j] = u[k][i][j];
                     }
                     else {
-                        u[k][i][j] = speed_amp * cos(2.0 * Pi * F * time) * x[0][i][j];       // line edited
+                        u[k][i][j] = speed_amp * cos(2.0 * Pi * F * time) * x[0][i][j];
                         up[k][i][j] = u[k][i][j];
                     }
                 }

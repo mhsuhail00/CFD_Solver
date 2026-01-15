@@ -4,7 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <cmath>
-#include <string>
+#include <cstring>
 #include <iomanip>
 #include <chrono>
 using namespace std;
@@ -1834,7 +1834,6 @@ public:
                 x1_jm1 += STRIDE_I;
             }
 
-
             // --------------------------------------------------
             // updating the bc of U And V
             // ---------------------------------------------------
@@ -1842,18 +1841,17 @@ public:
             // -----------------cylinder_oscillation--------------
             // cout << "Applying cylinder oscillation boundary condition..." << endl;
             j = 0;
-
             for(int k = 0; k < 2; k++) {
                 int uk_base = k * STRIDE_K + j;
                 int xother_base = (1-k) * STRIDE_K + j;
                 
                 for(int i = 0; i < n[0]; i++, uk_base += STRIDE_I, xother_base += STRIDE_I) {
                     if(k == 0) {
-                        u[uk_base] = -speed_amp * cos(2.0 * Pi * F * time) * x[xother_base + STRIDE_K];
+                        u[uk_base] = -speed_amp * cos(2.0 * Pi * F * time) * x[xother_base];
                         up[uk_base] = u[uk_base];
                     }
                     else {
-                        u[uk_base] = speed_amp * cos(2.0 * Pi * F * time) * x[xother_base - STRIDE_K];
+                        u[uk_base] = speed_amp * cos(2.0 * Pi * F * time) * x[xother_base];
                         up[uk_base] = u[uk_base];
                     }
                 }
@@ -1926,6 +1924,7 @@ public:
                     base2d++; u0++; u1++;
                 }
             }
+            
             // at solid boundary
             // cout << "Applying at solid boundary..." << endl;
             j = 0;
