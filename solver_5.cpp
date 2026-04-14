@@ -16,8 +16,8 @@ string INPUT_FILE = "INP.DAT";
 
 class Solver {
 public:
-    static constexpr int np1 = 350; //350
-    static constexpr int np2 = 570; //570
+    static constexpr int np1 = 213; //350
+    static constexpr int np2 = 420; //570
     
     // ADD THESE - calculate strides once for contiguous access
     static constexpr int STRIDE_I = np2;              // 420
@@ -217,7 +217,7 @@ public:
         // dummy variables
         int ic1, ic2, ic3, ic4, irem;
 
-        // auto start = chrono::high_resolution_clock::now();
+        auto start = chrono::high_resolution_clock::now();
 
 
         // Read input file and initialize variables
@@ -873,9 +873,9 @@ public:
             }
         }
 
-        // auto end = chrono::high_resolution_clock::now();
-        // auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-        // cout << "Time taken in Constructor: " << duration.count() << " ms" << endl;
+        auto end = chrono::high_resolution_clock::now();
+        auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+        cout << "Time taken in Constructor: " << duration.count() << " ms" << endl;
 
     }
 

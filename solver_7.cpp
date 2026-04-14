@@ -1,5 +1,6 @@
 // solver_3.cpp -> Parallize the work on available Hardware-Threads using OpenMP
 // Auto Parallization using OpenMP
+// Arrays as native pointers
 
 #include <iostream>
 #include <fstream>
@@ -482,8 +483,9 @@ public:
     Solver() {
         // SET NUMBER OF THREADS TO MAX AVAILABLE
         // int num_threads = omp_get_max_threads();  // Usually 4-16, not 100!
-        int num_threads = 10;
+        int num_threads = 20;
         omp_set_num_threads(num_threads);
+        cout << "Num_threads:" << num_threads << endl;
 
         // auto start = chrono::high_resolution_clock::now();
         
@@ -1137,7 +1139,7 @@ public:
             // Convection term
             // k loop starts
             // cout << "Calculating convection term..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for(int i=0; i<n[0]-1; i++) {
                 // Each thread gets its own stack copy of conv
                 double conv[3];
@@ -1598,7 +1600,7 @@ public:
             // calculation of star velocities at i+-1/2 and j+-1/2
             // ----------------------------------------------------------
             // cout << "Calculating star velocities at i+-1/2 and j+-1/2..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0] - 1; i++) {
                 int row_base = i * STRIDE_I + 1;
                 
@@ -1743,7 +1745,7 @@ public:
             // -----updating U and V from Pcor in the interior
             // ---------------------------------------------------------
             // cout << "Updating U and V from pcor in the interior..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0] - 1; i++) {
                 int row_base = i * STRIDE_I + 1;
                 
@@ -1902,11 +1904,11 @@ public:
                     int xother_base = i * STRIDE_I + j + (1-k) * STRIDE_K;
                     
                     if(k == 0) {
-                        u[uk_base] = -speed_amp * cos(2.0 * Pi * F * time) * x[xother_base];
+                        u[uk_base] = -speed_amp * cos(2.0 * Pi * F * time) * x[xother_base + STRIDE_K];
                         up[uk_base] = u[uk_base];
                     }
                     else {
-                        u[uk_base] = speed_amp * cos(2.0 * Pi * F * time) * x[xother_base];
+                        u[uk_base] = speed_amp * cos(2.0 * Pi * F * time) * x[xother_base - STRIDE_K];
                         up[uk_base] = u[uk_base];
                     }
                 }
@@ -1973,7 +1975,7 @@ public:
             }
             // at solid boundary
             // cout << "Applying at solid boundary..." << endl;
-            #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 // Thread-private arrays
                 double conv[3], d2u[3], alc[3];
@@ -2036,7 +2038,7 @@ public:
             }
 
             // at exit boundary
-            #pragma omp parallel for schedule(dynamic, 4)
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 // Thread-private arrays
                 double conv[3], d2u[3], alc[3];
@@ -2132,7 +2134,7 @@ public:
             // DILATION AND VORTICITY
             // ----------------------------
             dmax = 0.0;
-            #pragma omp parallel for reduction(max:dmax) schedule(dynamic, 4)
+            #pragma omp parallel for reduction(max:dmax) schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 double dmax_local = 0.0;
                 
@@ -2507,12 +2509,15 @@ public:
         
         delete[] inn_arr;
         delete[] ipp_arr;
+
+        // cout << "sip stuck 1" << endl;
+
         // Main iteration loop
         for (int iter = 0; iter < maxiter; iter++) {
             double ssum = 0.0;
             
             // Forward sweep - parallelize by rows
-            #pragma omp parallel for reduction(+:ssum) schedule(dynamic)
+            #pragma omp parallel for reduction(+:ssum) schedule(static)
             for (int i = 0; i < n[0]-1; i++) {
                 int row_base = i * STRIDE_I;
                 int inn = (i == 0) ? n[0]-2 : i-1;
@@ -2546,11 +2551,11 @@ public:
             
             // Compute sumnor only on first iteration
             if (iter == 0) {
-                #pragma omp single
                 sumnor = (ssum != 0.0) ? ssum : 1.0;
             }
             
             double sumav = ssum / sumnor;
+            // cout << "sip stuck 2" << endl;
             
             // Backward sweep - parallelize by rows
             #pragma omp parallel for schedule(static)

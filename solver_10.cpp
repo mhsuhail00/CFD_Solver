@@ -1,6 +1,12 @@
-// solver_3.cpp -> Parallize the work on available Hardware-Threads using OpenMP (Multicore parallelism on shared memory)
-// Auto Parallization using OpenMP
-// Arrays as Blitz Multi Dimentional Arrays (not pointers)
+// Manual Parallization using MPI(Message Passing Interface) - Distributed memory on different nodes/processors
+//                n1
+//         -----------------
+//         |               |     Left & Right are Boundary
+//     n0  |    DOMAIN     |     Top & Bottom is Continious
+//         |               |
+//         -----------------
+// Domain is decomposed in n0: n0_local(rank) = n0/size + (1 if rank < n0 % size else 0)
+
 
 #include <iostream>
 #include <fstream>
@@ -9,16 +15,19 @@
 #include <iomanip>
 #include <chrono>
 #include <ctime>
-#include <omp.h>
 #include <blitz/array.h>
+#include <mpi.h>
+
 using namespace std;
 int n[2];
 string INPUT_FILE = "INP.DAT";
 
 class Solver {
 public:
-    static constexpr int np1 = 350; //350
-    static constexpr int np2 = 570; //570
+    int rank, size;
+
+    static constexpr int np1 = 213; //350
+    static constexpr int np2 = 420; //570
     
     // ADD THESE - calculate strides once for contiguous access
     static constexpr int STRIDE_I = np2;              // 420
@@ -203,7 +212,7 @@ public:
 
     // Control parameters (integer due to implicit rule for i,j,k,l,m,n)
     int norm = 0;                                       // Normalization flag
-    int MAXSTEP = 5000000;                              // Maximum time steps
+    int MAXSTEP = 600;                              // Maximum time steps
     int restart = 0;                                    // Restart flag (changed from 0 to 1)
     int nsnap = 0;                                      // Current snapshot number
     int maxsnap = 100;                                  // Maximum snapshots
@@ -214,14 +223,15 @@ public:
     double t_period, icycles, tstart, t_incr, i_loop, loop_snap, vnn, dmax;
 
     Solver() {
-        // SET NUMBER OF THREADS TO MAX AVAILABLE
-        // int num_threads = omp_get_max_threads();
-        int num_threads = 20;
-        cout << "Num_threads:" << num_threads << endl;
-        omp_set_num_threads(num_threads);
+
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &size);  
 
         // dummy variables
         int ic1, ic2, ic3, ic4, irem;
+
+        // auto start = chrono::high_resolution_clock::now();
+
 
         // Read input file and initialize variables
         ifstream input_file(INPUT_FILE);
@@ -229,33 +239,17 @@ public:
             cerr << "Error opening input file: " << INPUT_FILE << endl;
             return;
         }
+        // cout << "Input file opened successfully." << endl;
 
         input_file >> n[0] >> n[1] >> dxi(0) >> dxi(1);
         input_file >> p_grid >> a_grid >> ar;
         input_file >> ic1 >> ic2 >> ic3 >> ic4;
 
-        // Extract pointers ONCE at the beginning
         double* x_data = x.data();
-        double* dxix_data = dxix.data();
-        double* dxiy_data = dxiy.data();
-        double* dex_data = dex.data();
-        double* dey_data = dey.data();
-        double* alph_data = alph.data();
-        double* beta_data = beta.data();
-        double* gamma_data = gamma.data();
-        double* ajac_data = ajac.data();
-        double* xnix_data = xnix.data();
-        double* xniy_data = xniy.data();
-        double* xnox_data = xnox.data();
-        double* xnoy_data = xnoy.data();
-        double* p1_data = p1.data();
-        double* q1_data = q1.data();
-
-        // File reading - SERIAL (cannot be parallelized)
         for (int j = 0; j < n[1]; j++) {
             int x0_base = j;
             int x1_base = STRIDE_K + j;
-            
+
             for (int i = 0; i < n[0]; i++) {
                 input_file >> aaa >> bbb >> x_data[x0_base] >> x_data[x1_base];
                 x0_base += STRIDE_I;
@@ -263,13 +257,21 @@ public:
             }
         }
 
+        double* dxix_data = dxix.data();
+        double* dxiy_data = dxiy.data();
+        double* dex_data = dex.data();
+        double* dey_data = dey.data();
+
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;
+            int idx = j;  // Start at column j, row 0
             for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
                 input_file >> dxix_data[idx] >> dxiy_data[idx] >> dex_data[idx] >> dey_data[idx];
             }
         }
 
+        double* alph_data = alph.data();
+        double* beta_data = beta.data();
+        double* gamma_data = gamma.data();
         for (int j = 0; j < n[1]; j++) {
             int idx = j;
             for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
@@ -278,97 +280,87 @@ public:
         }
 
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;
-            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
-                input_file >> ajac_data[idx];
+            for (int i = 0; i < n[0]; i++) {
+                input_file >> ajac(i,j);
             }
         }
 
+        double* xnix_data = xnix.data();
+        double* xniy_data = xniy.data();
+        double* xnox_data = xnox.data();
+        double* xnoy_data = xnoy.data();
         for (int i = 0; i < n[0]; i++) {
             input_file >> xnix_data[i] >> xniy_data[i] >> xnox_data[i] >> xnoy_data[i];
         }
 
-        #pragma omp parallel for collapse(2)
+        double* p1_data = p1.data();
+        double* q1_data = q1.data();
+
         for (int j = 0; j < n[1]; j++) {
-            for (int i = 0; i < n[0]; i++) {
-                int idx = i * STRIDE_I + j;
+            int idx = j;
+            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
                 p1_data[idx] = 0.0;
                 q1_data[idx] = 0.0;
             }
         }
 
-        // Dead code
-        irem = 0;
-        n[1] = n[1] - irem;
-        if (irem != 0) {
-            int row_base = (n[1]-1) * STRIDE_I;
-            #pragma omp parallel for
-            for (int i = 0; i < n[0]; i++) {
-                int idx = row_base + i;
-                xnox_data[i] = -dex_data[idx] / sqrt(gamma_data[idx]);
-                xnoy_data[i] = -dey_data[idx] / sqrt(gamma_data[idx]);
-            }
-        }
-
-        // Generating filenames - SERIAL (fast enough, no need to parallelize)
-        int i3, i2, i1;
         for (int i = 0; i < maxsnap; i++) {
             filnam[i] = "SNAP000.DAT";
-            int i3 = i / 100;
-            int i2 = (i - 100 * i3) / 10;
-            int i1 = i - i2 * 10 - i3 * 100;
-            filnam[i][5] = '0' + i3;
-            filnam[i][6] = '0' + i2;
-            filnam[i][7] = '0' + i1;
+        }
+
+        int i3, i2, i1;
+        for (int k = 0; k < maxsnap; k++) {
+            i3 = k / 100;
+            i2 = (k - 100 * i3) / 10;
+            i1 = k - i2 * 10 - i3 * 100;
+            filnam[k][5] = '0' + i3;
+            filnam[k][6] = '0' + i2;
+            filnam[k][7] = '0' + i1;
         }
 
         // --------------------------------------------------------
         // CALCULATING NXi AND Net AT OUTER AND INNER POINTS
         // --------------------------------------------------------
+        // cout << "Calculating NXi and Net at outer and inner points..." << endl;
+        // at inner first
         double* xnixi_data = xnixi.data();
         double* xniet_data = xniet.data();
-        double* xnoxi_data = xnoxi.data();
-        double* xnoet_data = xnoet.data();
-
         int j = 0;
-        #pragma omp parallel for simd
         for (int i = 0; i < n[0]; i++) {
-            int idx = i * STRIDE_I + j;
+            int idx = i * STRIDE_I + j;  // Calculate once
             xnixi_data[i] = dxix_data[idx] * xnix_data[i] + dxiy_data[idx] * xniy_data[i];
             xniet_data[i] = dex_data[idx] * xnix_data[i] + dey_data[idx] * xniy_data[i];
         }
-        
+
+        double* xnoxi_data = xnoxi.data();
+        double* xnoet_data = xnoet.data();
         j = n[1]-1;
-        #pragma omp parallel for simd
         for (int i = 0; i < n[0]; i++) {
             int idx = i * STRIDE_I + j;
             xnoxi_data[i] = dxix_data[idx] * xnox_data[i] + dxiy_data[idx] * xnoy_data[i];
             xnoet_data[i] = dex_data[idx] * xnox_data[i] + dey_data[idx] * xnoy_data[i];
         }
 
-        // Write boundary file - SERIAL (I/O)
         ofstream bound_file("bound.dat");
         for (int j = 0; j < n[1]; j += n[1]-1) {
             int x0_base = j;
             int x1_base = STRIDE_K + j;
             
             for (int i = 0; i < n[0]; i++) {
-                bound_file << i << " " << j << " " << x_data[x0_base] << " " 
-                        << x_data[x1_base] << " 1" << endl;
+                bound_file << i << " " << j << " " << x_data[x0_base] << " " << x_data[x1_base] << " 1" << endl;
                 x0_base += STRIDE_I;
                 x1_base += STRIDE_I;
             }
             bound_file << endl;
         }
-        bound_file.close();
 
         //-----------------------------------------------------
         // Applying Initial conditions
         //-----------------------------------------------------
+        // cout << "Applying initial conditions..." << endl;
         if (restart == 0) {
             loop = 1;
             time = 0;
-            
             double* u_data = u.data();
             double* up_data = up.data();
             double* uxi_data = uxi.data();
@@ -377,42 +369,54 @@ public:
             double* pcor_data = pcor.data();
             double* si_data = si.data();
 
-            #pragma omp parallel for schedule(static)
-            for (int i = 0; i < n[0]; i++) {
-                int base = i * STRIDE_I;
-                #pragma omp simd
-                for (int j = 0; j < n[1]; j++) {
-                    int idx = base + j;
-                    u_data[idx] = uinf;
-                    u_data[STRIDE_K + idx] = vinf;
-                    u_data[2*STRIDE_K + idx] = 0.0;
+            for (int j = 0; j < n[1]; j++) {
+                int idx_2d = j;
+                int u0_base = j;
+                int u1_base = STRIDE_K + j;
+                int u2_base = 2*STRIDE_K + j;
+                int up0_base = j;
+                int up1_base = STRIDE_K + j;
+                
+                for (int i = 0; i < n[0]; i++) {
+                    u_data[u0_base] = uinf;
+                    u_data[u1_base] = vinf;
+                    u_data[u2_base] = 0.0;
+
+                    uxi_data[idx_2d] = 0;
+                    uet_data[idx_2d] = 0;
+                    p_data[idx_2d] = 0;
+                    up_data[up0_base] = uinf;
+                    up_data[up1_base] = vinf;
+                    pcor_data[idx_2d] = 0;
+                    si_data[idx_2d] = 0;
                     
-                    up_data[idx] = uinf;
-                    up_data[STRIDE_K + idx] = vinf;
-                    
-                    uxi_data[idx] = 0.0;
-                    uet_data[idx] = 0.0;
-                    p_data[idx] = 0.0;
-                    pcor_data[idx] = 0.0;
-                    si_data[idx] = 0.0;
+                    idx_2d += STRIDE_I;
+                    u0_base += STRIDE_I;
+                    u1_base += STRIDE_I;
+                    u2_base += STRIDE_I;
+                    up0_base += STRIDE_I;
+                    up1_base += STRIDE_I;
                 }
             }
         } else {
-            // Binary read - SERIAL (I/O)
             ifstream restart_file("spa100.dat", ios::binary);
             if (!restart_file) {
                 cerr << "Error opening restart file" << endl;
                 return;
             }
-            
+
+            double* x_data = x.data();
+            double* si_data = si.data();
+            double* u_data = u.data();
+            double* p_data = p.data();
+     
             restart_file.read(reinterpret_cast<char*>(&loop), sizeof(loop));
             restart_file.read(reinterpret_cast<char*>(&time), sizeof(time));
             restart_file.read(reinterpret_cast<char*>(&dmax), sizeof(dmax));
-            restart_file.read(reinterpret_cast<char*>(x.data()), 2 * np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(si.data()), np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(u.data()), 3 * np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(p.data()), np1 * np2 * sizeof(double));
-            restart_file.close();
+            restart_file.read(reinterpret_cast<char*>(x_data), 2 * np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(si_data), np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(u_data), 3 * np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(p_data), np1 * np2 * sizeof(double));
         }
 
         iiflag = 0;
@@ -434,12 +438,25 @@ public:
         //c       APPLYING BOUNDARY CONDITION
         //c---------setting boundary conditions----------------
         //c---------solid-fluid boundary
-
-        // Extract ALL pointers at once (do this ONCE per function/scope)
+        // cout << "Applying boundary conditions (solid-fluid boundary)..." << endl;
         double* u_data = u.data();
         double* up_data = up.data();
 
-        // Extract coefficient matrix pointers
+        j = 0;
+        for(int k=0; k<2; k++){
+            int uk_base = k * STRIDE_K + j;
+            
+            for(int i=0; i<n[0]; i++){
+                if(k == 0){
+                    u_data[uk_base] = -speed_amp * x_data[STRIDE_K + uk_base];  // x[1][i][j]
+                } else {
+                    u_data[uk_base] = speed_amp * x_data[uk_base - STRIDE_K];   // x[0][i][j]
+                }
+                up_data[uk_base] = u_data[uk_base];
+                uk_base += STRIDE_I;
+            }
+        }
+
         double* aue_data = aue.data();
         double* auw_data = auw.data();
         double* aun_data = aun.data();
@@ -517,395 +534,357 @@ public:
         double* anw_data = anw.data();
         double* ap_data = ap.data();
 
-        //PARALLEL REGION
-        #pragma omp parallel 
-        {
-            // ----------------------------------------------------
-            // Solid-fluid boundary (j=0)
-            // ----------------------------------------------------
-            int j = 0;
+        // ----------------------------------------------------
+        // setting bc at infinity
+        // ----------------------------------------------------
+        // cout << "Setting boundary conditions at infinity..." << endl;
+        j = n[1]-1;
+        int u0_base = j;     // u[0][i][j]
+        int u1_base = STRIDE_K + j;  // u[1][i][j]
+        int u2_base = 2*STRIDE_K + j; // u[2][i][j]
+        int jnn = j-1;
+        int u0_base_jnn = jnn;  // u[0][i][jnn]
+        int u1_base_jnn = STRIDE_K + jnn;
+        int u2_base_jnn = 2*STRIDE_K + jnn;
+
+        for(int i=0; i<n[0]-1; i++){
+            vnn = u_data[u0_base]*xnox_data[i] + u_data[u1_base]*xnoy_data[i];
             
-            // Process k=0 and k=1 layers
-            for(int k=0; k<2; k++){
-                #pragma omp for nowait
-                for(int i = 0; i < n[0]; i++) {
-                    int uk_base = k * STRIDE_K + i * STRIDE_I + j;
-                    
-                    if(k == 0) {
-                        u_data[uk_base] = -speed_amp * x_data[STRIDE_K + uk_base];  // x[1][i][j]
-                    } else {
-                        u_data[uk_base] = speed_amp * x_data[uk_base - STRIDE_K];   // x[0][i][j]
-                    }
-                    up_data[uk_base] = u_data[uk_base];
-                }
+            if(vnn >= 0){
+                // inflow dirichlet conditions
+                u_data[u0_base] = uinf;
+                u_data[u1_base] = vinf;
+                u_data[u2_base] = 0.0;
+                up_data[u0_base] = uinf;
+                up_data[u1_base] = vinf;
             }
-
-            // Set temperature boundary
-            #pragma omp for nowait
-            for(int i = 0; i < n[0]; i++) {
-                int base = 2*STRIDE_K + i * STRIDE_I + j;
-                u_data[base] = 1.0;
-            }
-
-            // ----------------------------------------------------
-            // Setting BC at infinity (j = n[1]-1)
-            // ----------------------------------------------------
-            j = n[1]-1;
-            int jnn = j-1;
-
-            #pragma omp for nowait
-            for(int i = 0; i < n[0]-1; i++) {
-                // Calculate indices for this i
-                int u0_base = i * STRIDE_I + j;
-                int u1_base = STRIDE_K + i * STRIDE_I + j;
-                int u2_base = 2*STRIDE_K + i * STRIDE_I + j;
-                int u0_base_jnn = i * STRIDE_I + jnn;
-                int u1_base_jnn = STRIDE_K + i * STRIDE_I + jnn;
-                int u2_base_jnn = 2*STRIDE_K + i * STRIDE_I + jnn;
+            else{
+                // Neuman condition
+                u_data[u0_base] = u_data[u0_base_jnn];
+                u_data[u1_base] = u_data[u1_base_jnn];
+                u_data[u2_base] = u_data[u2_base_jnn];
                 
-                // Calculate normal velocity
-                double vnn = u_data[u0_base]*xnox_data[i] + u_data[u1_base]*xnoy_data[i];
-                
-                if(vnn >= 0) {
-                    // Inflow: Dirichlet conditions
-                    u_data[u0_base] = uinf;
-                    u_data[u1_base] = vinf;
-                    u_data[u2_base] = 0.0;
-                    up_data[u0_base] = uinf;
-                    up_data[u1_base] = vinf;
-                }
-                else {
-                    // Outflow: Neumann condition
-                    u_data[u0_base] = u_data[u0_base_jnn];
-                    u_data[u1_base] = u_data[u1_base_jnn];
-                    u_data[u2_base] = u_data[u2_base_jnn];
+                if(i==0){
+                    int last_idx = (n[0]-1) * STRIDE_I + j;
+                    u_data[last_idx] = u_data[u0_base];  // u[0][n[0]-1][j]
+                    u_data[last_idx + STRIDE_K] = u_data[u1_base];  // u[1][n[0]-1][j]
+                    u_data[last_idx + 2*STRIDE_K] = u_data[u2_base]; // u[2][n[0]-1][j]
                 }
             }
             
-            // Handle periodic boundary - SINGLE thread only (avoid race condition)
-            #pragma omp single
-            {
-                int u0_base_0 = j;  // i=0
-                int u1_base_0 = STRIDE_K + j;
-                int u2_base_0 = 2*STRIDE_K + j;
-                int last_idx = (n[0]-1) * STRIDE_I + j;  // i=n[0]-1
+            // Increment all pointers for next i
+            u0_base += STRIDE_I;
+            u1_base += STRIDE_I;
+            u2_base += STRIDE_I;
+            u0_base_jnn += STRIDE_I;
+            u1_base_jnn += STRIDE_I;
+            u2_base_jnn += STRIDE_I;
+        }
 
-                u_data[last_idx] = u_data[u0_base_0];
-                u_data[last_idx + STRIDE_K] = u_data[u1_base_0];
-                u_data[last_idx + 2*STRIDE_K] = u_data[u2_base_0];
-            }
-
-            // ----------------------------------------------------
-            // Forming coefficient matrix for velocity
-            // ----------------------------------------------------
-            #pragma omp for schedule(static) nowait
-            for(int i = 0; i < n[0]-1; i++) {
-                int row_base = i * STRIDE_I + 1;  // Start at j=1
-                int row_last = (n[0]-1) * STRIDE_I + 1;  // For periodic BC copy
+        // forming coeff matrix for velocity
+        // cout << "Forming coefficient matrix for velocity..." << endl;
+        // forming coeff matrix for velocity
+        for(int i=0; i<n[0]-1; i++){
+            int row_base = i * STRIDE_I + 1;  // Start at j=1
+            int row_last = (n[0]-1) * STRIDE_I + 1;  // For periodic BC copy
+            
+            for(int j=1; j<n[1]-1; j++, row_base++, row_last++){
                 
-                // Inner j loop remains sequential (within each thread)
-                for(int j = 1; j < n[1]-1; j++, row_base++, row_last++) {
-                    
-                    if(j == 1 || j == n[1]-2) {
-                        // Second order scheme
-                        aue_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))+p1_data[row_base]/(2.0*dxi(0)))/Re;
-                        auw_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))-p1_data[row_base]/(2.0*dxi(0)))/Re;
-                        aun_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))+q1_data[row_base]/(2.0*dxi(1)))/Re;
-                        aus_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))-q1_data[row_base]/(2.0*dxi(1)))/Re;
+                if(j==1 || j==n[1]-2){
+                    // Second order scheme
+                    aue_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))+p1_data[row_base]/(2.0*dxi(0)))/Re;
+                    auw_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))-p1_data[row_base]/(2.0*dxi(0)))/Re;
+                    aun_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))+q1_data[row_base]/(2.0*dxi(1)))/Re;
+                    aus_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))-q1_data[row_base]/(2.0*dxi(1)))/Re;
 
-                        aune_data[row_base] = dt*beta_data[row_base]/(2.0*dxi(0)*dxi(1)*Re);
-                        ausw_data[row_base] = aune_data[row_base];
-                        aunw_data[row_base] = -dt*beta_data[row_base]/(2.0*dxi(0)*dxi(1)*Re);
-                        ause_data[row_base] = aunw_data[row_base];
-                        aup_data[row_base] = 1+dt*2.0*(alph_data[row_base]/(dxi(0)*dxi(0))+gamma_data[row_base]/(dxi(1)*dxi(1)))/Re;
+                    aune_data[row_base] = dt*beta_data[row_base]/(2.0*dxi(0)*dxi(1)*Re);
+                    ausw_data[row_base] = aune_data[row_base];
+                    aunw_data[row_base] = -dt*beta_data[row_base]/(2.0*dxi(0)*dxi(1)*Re);
+                    ause_data[row_base] = aunw_data[row_base];
+                    aup_data[row_base] = 1+dt*2.0*(alph_data[row_base]/(dxi(0)*dxi(0))+gamma_data[row_base]/(dxi(1)*dxi(1)))/Re;
 
-                        // Temperature coefficients
-                        ate_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))+p1_data[row_base]/(2.0*dxi(0)))/(Re*Pr);
-                        atw_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))-p1_data[row_base]/(2.0*dxi(0)))/(Re*Pr);
-                        atn_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))+q1_data[row_base]/(2.0*dxi(1)))/(Re*Pr);
-                        ats_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))-q1_data[row_base]/(2.0*dxi(1)))/(Re*Pr);
+                    // Temperature coefficients
+                    ate_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))+p1_data[row_base]/(2.0*dxi(0)))/(Re*Pr);
+                    atw_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))-p1_data[row_base]/(2.0*dxi(0)))/(Re*Pr);
+                    atn_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))+q1_data[row_base]/(2.0*dxi(1)))/(Re*Pr);
+                    ats_data[row_base] = -dt*(gamma_data[row_base]/(dxi(1)*dxi(1))-q1_data[row_base]/(2.0*dxi(1)))/(Re*Pr);
 
-                        atne_data[row_base] = dt*(beta_data[row_base]/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
-                        atsw_data[row_base] = atne_data[row_base];
-                        atnw_data[row_base] = -dt*(beta_data[row_base]/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
-                        atse_data[row_base] = atnw_data[row_base];
-                        atp_data[row_base] = 1+dt*2.0*(alph_data[row_base]/(dxi(0)*dxi(0))+gamma_data[row_base]/(dxi(1)*dxi(1)))/(Re*Pr);
-                    }
-                    else {
-                        // Fourth order scheme
-                        aue_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))+(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
-                        auw_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))-(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
-                        aun_data[row_base]=(-dt)*((4.0*gamma_data[row_base])/(3.0*dxi(1)*dxi(1))+(2.0*q1_data[row_base])/(3.0*dxi(1)))/Re;
-                        aus_data[row_base]=(-dt)*((4.0*gamma_data[row_base])/(3.0*dxi(1)*dxi(1))-(2.0*q1_data[row_base])/(3.0*dxi(1)))/Re;
+                    atne_data[row_base] = dt*(beta_data[row_base]/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
+                    atsw_data[row_base] = atne_data[row_base];
+                    atnw_data[row_base] = -dt*(beta_data[row_base]/(2.0*dxi(0)*dxi(1)))/(Re*Pr);
+                    atse_data[row_base] = atnw_data[row_base];
+                    atp_data[row_base] = 1+dt*2.0*(alph_data[row_base]/(dxi(0)*dxi(0))+gamma_data[row_base]/(dxi(1)*dxi(1)))/(Re*Pr);
+                }
+                else{
+                    // Fourth order scheme
+                    aue_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))+(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
+                    auw_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))-(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
+                    aun_data[row_base]=(-dt)*((4.0*gamma_data[row_base])/(3.0*dxi(1)*dxi(1))+(2.0*q1_data[row_base])/(3.0*dxi(1)))/Re;
+                    aus_data[row_base]=(-dt)*((4.0*gamma_data[row_base])/(3.0*dxi(1)*dxi(1))-(2.0*q1_data[row_base])/(3.0*dxi(1)))/Re;
 
-                        aune_data[row_base]=(-dt)*(-8.0*beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
-                        aunw_data[row_base]=(-dt)*(8.0*beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
-                        ause_data[row_base]=aunw_data[row_base];
-                        ausw_data[row_base]=aune_data[row_base];
+                    aune_data[row_base]=(-dt)*(-8.0*beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    aunw_data[row_base]=(-dt)*(8.0*beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    ause_data[row_base]=aunw_data[row_base];
+                    ausw_data[row_base]=aune_data[row_base];
 
-                        aunn_data[row_base]=(-dt)*(-gamma_data[row_base]/(12.0*dxi(1)*dxi(1))-q1_data[row_base]/(12.0*dxi(1)))/Re;
-                        auss_data[row_base]=(-dt)*(-gamma_data[row_base]/(12.0*dxi(1)*dxi(1))+q1_data[row_base]/(12.0*dxi(1)))/Re;
-                        auee_data[row_base]=(-dt)*(-alph_data[row_base]/(12.0*dxi(0)*dxi(0))-p1_data[row_base]/(12.0*dxi(0)))/Re;
-                        auww_data[row_base]=(-dt)*(-alph_data[row_base]/(12.0*dxi(0)*dxi(0))+p1_data[row_base]/(12.0*dxi(0)))/Re;
+                    aunn_data[row_base]=(-dt)*(-gamma_data[row_base]/(12.0*dxi(1)*dxi(1))-q1_data[row_base]/(12.0*dxi(1)))/Re;
+                    auss_data[row_base]=(-dt)*(-gamma_data[row_base]/(12.0*dxi(1)*dxi(1))+q1_data[row_base]/(12.0*dxi(1)))/Re;
+                    auee_data[row_base]=(-dt)*(-alph_data[row_base]/(12.0*dxi(0)*dxi(0))-p1_data[row_base]/(12.0*dxi(0)))/Re;
+                    auww_data[row_base]=(-dt)*(-alph_data[row_base]/(12.0*dxi(0)*dxi(0))+p1_data[row_base]/(12.0*dxi(0)))/Re;
 
-                        aunnee_data[row_base]=(-dt)*(-beta_data[row_base]/(72.0*dxi(0)*dxi(1)))/Re;
-                        aunnww_data[row_base]=(-dt)*(beta_data[row_base]/(72.0*dxi(0)*dxi(1)))/Re;
-                        aussee_data[row_base]=aunnww_data[row_base];
-                        aussww_data[row_base]=aunnee_data[row_base];
+                    aunnee_data[row_base]=(-dt)*(-beta_data[row_base]/(72.0*dxi(0)*dxi(1)))/Re;
+                    aunnww_data[row_base]=(-dt)*(beta_data[row_base]/(72.0*dxi(0)*dxi(1)))/Re;
+                    aussee_data[row_base]=aunnww_data[row_base];
+                    aussww_data[row_base]=aunnee_data[row_base];
 
-                        aunne_data[row_base]=(-dt)*(beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
-                        aunnw_data[row_base]=(-dt)*(-beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
-                        ausse_data[row_base]=aunnw_data[row_base];
-                        aussw_data[row_base]=aunne_data[row_base];
+                    aunne_data[row_base]=(-dt)*(beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    aunnw_data[row_base]=(-dt)*(-beta_data[row_base]/(9.0*dxi(0)*dxi(1)))/Re;
+                    ausse_data[row_base]=aunnw_data[row_base];
+                    aussw_data[row_base]=aunne_data[row_base];
 
-                        aunee_data[row_base]=aunne_data[row_base];
-                        aunww_data[row_base]=aunnw_data[row_base];
-                        ausee_data[row_base]=aunnw_data[row_base];
-                        ausww_data[row_base]=aunne_data[row_base];
+                    aunee_data[row_base]=aunne_data[row_base];
+                    aunww_data[row_base]=aunnw_data[row_base];
+                    ausee_data[row_base]=aunnw_data[row_base];
+                    ausww_data[row_base]=aunne_data[row_base];
 
-                        aup_data[row_base]=1+dt*(5.0*alph_data[row_base]/(2.0*dxi(0)*dxi(0))+5.0*gamma_data[row_base]/(2.0*dxi(1)*dxi(1)))/Re;
+                    aup_data[row_base]=1+dt*(5.0*alph_data[row_base]/(2.0*dxi(0)*dxi(0))+5.0*gamma_data[row_base]/(2.0*dxi(1)*dxi(1)))/Re;
 
-                        // Temperature (just divide velocity coeffs by Pr)
-                        ate_data[row_base]=aue_data[row_base]/Pr;
-                        atw_data[row_base]=auw_data[row_base]/Pr;
-                        atn_data[row_base]=aun_data[row_base]/Pr;
-                        ats_data[row_base]=aus_data[row_base]/Pr;
-                        atne_data[row_base]=aune_data[row_base]/Pr;
-                        atnw_data[row_base]=aunw_data[row_base]/Pr;
-                        atse_data[row_base]=ause_data[row_base]/Pr;
-                        atsw_data[row_base]=ausw_data[row_base]/Pr;
-                        atnn_data[row_base]=aunn_data[row_base]/Pr;
-                        atss_data[row_base]=auss_data[row_base]/Pr;
-                        atee_data[row_base]=auee_data[row_base]/Pr;
-                        atww_data[row_base]=auww_data[row_base]/Pr;
-                        atnnee_data[row_base]=aunnee_data[row_base]/Pr;
-                        atnnww_data[row_base]=aunnww_data[row_base]/Pr;
-                        atssee_data[row_base]=aussee_data[row_base]/Pr;
-                        atssww_data[row_base]=aussww_data[row_base]/Pr;
-                        atnne_data[row_base]=aunne_data[row_base]/Pr;
-                        atnnw_data[row_base]=aunnw_data[row_base]/Pr;
-                        atsse_data[row_base]=ausse_data[row_base]/Pr;
-                        atssw_data[row_base]=aussw_data[row_base]/Pr;
-                        atnee_data[row_base]=aunee_data[row_base]/Pr;
-                        atnww_data[row_base]=aunww_data[row_base]/Pr;
-                        atsee_data[row_base]=ausee_data[row_base]/Pr;
-                        atsww_data[row_base]=ausww_data[row_base]/Pr;
-                        atp_data[row_base]=1+dt*(5.0*alph_data[row_base]/(2.0*dxi(0)*dxi(0))+5.0*gamma_data[row_base]/(2.0*dxi(1)*dxi(1)))/(Re*Pr);
-                    }
+                    // Temperature (just divide velocity coeffs by Pr)
+                    ate_data[row_base]=aue_data[row_base]/Pr;
+                    atw_data[row_base]=auw_data[row_base]/Pr;
+                    atn_data[row_base]=aun_data[row_base]/Pr;
+                    ats_data[row_base]=aus_data[row_base]/Pr;
+                    atne_data[row_base]=aune_data[row_base]/Pr;
+                    atnw_data[row_base]=aunw_data[row_base]/Pr;
+                    atse_data[row_base]=ause_data[row_base]/Pr;
+                    atsw_data[row_base]=ausw_data[row_base]/Pr;
+                    atnn_data[row_base]=aunn_data[row_base]/Pr;
+                    atss_data[row_base]=auss_data[row_base]/Pr;
+                    atee_data[row_base]=auee_data[row_base]/Pr;
+                    atww_data[row_base]=auww_data[row_base]/Pr;
+                    atnnee_data[row_base]=aunnee_data[row_base]/Pr;
+                    atnnww_data[row_base]=aunnww_data[row_base]/Pr;
+                    atssee_data[row_base]=aussee_data[row_base]/Pr;
+                    atssww_data[row_base]=aussww_data[row_base]/Pr;
+                    atnne_data[row_base]=aunne_data[row_base]/Pr;
+                    atnnw_data[row_base]=aunnw_data[row_base]/Pr;
+                    atsse_data[row_base]=ausse_data[row_base]/Pr;
+                    atssw_data[row_base]=aussw_data[row_base]/Pr;
+                    atnee_data[row_base]=aunee_data[row_base]/Pr;
+                    atnww_data[row_base]=aunww_data[row_base]/Pr;
+                    atsee_data[row_base]=ausee_data[row_base]/Pr;
+                    atsww_data[row_base]=ausww_data[row_base]/Pr;
+                    atp_data[row_base]=1+dt*(5.0*alph_data[row_base]/(2.0*dxi(0)*dxi(0))+5.0*gamma_data[row_base]/(2.0*dxi(1)*dxi(1)))/(Re*Pr);
+                }
 
-                    // Boundary coefficient storage
-                    if(j == 1) {
-                        bus_data[i]=aus_data[row_base];
-                        buse_data[i]=ause_data[row_base];
-                        busw_data[i]=ausw_data[row_base];
-                        bts_data[i]=ats_data[row_base];
-                        btse_data[i]=atse_data[row_base];
-                        btsw_data[i]=atsw_data[row_base];
+                // Boundary coefficient storage
+                if(j==1){
+                    bus_data[i]=aus_data[row_base];
+                    buse_data[i]=ause_data[row_base];
+                    busw_data[i]=ausw_data[row_base];
+                    bts_data[i]=ats_data[row_base];
+                    btse_data[i]=atse_data[row_base];
+                    btsw_data[i]=atsw_data[row_base];
 
-                        aus_data[row_base]=0;
-                        ause_data[row_base]=0;
-                        ausw_data[row_base]=0;
-                        ats_data[row_base]=0;
-                        atse_data[row_base]=0;
-                        atsw_data[row_base]=0;
-                    }
-                    
-                    if(j == n[1]-2) {
-                        bun_data[i]=aun_data[row_base];
-                        bune_data[i]=aune_data[row_base];
-                        bunw_data[i]=aunw_data[row_base];
-                        btn_data[i]=atn_data[row_base];
-                        btne_data[i]=atne_data[row_base];
-                        btnw_data[i]=atnw_data[row_base];
+                    aus_data[row_base]=0;
+                    ause_data[row_base]=0;
+                    ausw_data[row_base]=0;
+                    ats_data[row_base]=0;
+                    atse_data[row_base]=0;
+                    atsw_data[row_base]=0;
+                }
+                
+                if(j==n[1]-2){
+                    bun_data[i]=aun_data[row_base];
+                    bune_data[i]=aune_data[row_base];
+                    bunw_data[i]=aunw_data[row_base];
+                    btn_data[i]=atn_data[row_base];
+                    btne_data[i]=atne_data[row_base];
+                    btnw_data[i]=atnw_data[row_base];
 
-                        aun_data[row_base]=0;
-                        aune_data[row_base]=0;
-                        aunw_data[row_base]=0;
-                        atn_data[row_base]=0;
-                        atne_data[row_base]=0;
-                        atnw_data[row_base]=0;
-                    }
+                    aun_data[row_base]=0;
+                    aune_data[row_base]=0;
+                    aunw_data[row_base]=0;
+                    atn_data[row_base]=0;
+                    atne_data[row_base]=0;
+                    atnw_data[row_base]=0;
+                }
 
-                    // Periodic BC - copy to last row
-                    if(i == 0) {
-                        aue_data[row_last]=aue_data[row_base];
-                        auw_data[row_last]=auw_data[row_base];
-                        aun_data[row_last]=aun_data[row_base];
-                        aus_data[row_last]=aus_data[row_base];
-                        aune_data[row_last]=aune_data[row_base];
-                        ause_data[row_last]=ause_data[row_base];
-                        ausw_data[row_last]=ausw_data[row_base];
-                        aunw_data[row_last]=aunw_data[row_base];
-                        aup_data[row_last]=aup_data[row_base];
+                // Periodic BC - copy to last row
+                if(i==0){
+                    aue_data[row_last]=aue_data[row_base];
+                    auw_data[row_last]=auw_data[row_base];
+                    aun_data[row_last]=aun_data[row_base];
+                    aus_data[row_last]=aus_data[row_base];
+                    aune_data[row_last]=aune_data[row_base];
+                    ause_data[row_last]=ause_data[row_base];
+                    ausw_data[row_last]=ausw_data[row_base];
+                    aunw_data[row_last]=aunw_data[row_base];
+                    aup_data[row_last]=aup_data[row_base];
 
-                        aunn_data[row_last]=aunn_data[row_base];
-                        aunnee_data[row_last]=aunnee_data[row_base];
-                        aunnww_data[row_last]=aunnww_data[row_base];
-                        aunne_data[row_last]=aunne_data[row_base];
-                        aunnw_data[row_last]=aunnw_data[row_base];
-                        aunee_data[row_last]=aunee_data[row_base];
-                        aunww_data[row_last]=aunww_data[row_base];
-                        auss_data[row_last]=auss_data[row_base];
-                        aussee_data[row_last]=aussee_data[row_base];
-                        aussww_data[row_last]=aussww_data[row_base];
-                        ausse_data[row_last]=ausse_data[row_base];
-                        aussw_data[row_last]=aussw_data[row_base];
-                        ausee_data[row_last]=ausee_data[row_base];
-                        ausww_data[row_last]=ausww_data[row_base];
-                        auee_data[row_last]=auee_data[row_base];
-                        auww_data[row_last]=auww_data[row_base];
+                    aunn_data[row_last]=aunn_data[row_base];
+                    aunnee_data[row_last]=aunnee_data[row_base];
+                    aunnww_data[row_last]=aunnww_data[row_base];
+                    aunne_data[row_last]=aunne_data[row_base];
+                    aunnw_data[row_last]=aunnw_data[row_base];
+                    aunee_data[row_last]=aunee_data[row_base];
+                    aunww_data[row_last]=aunww_data[row_base];
+                    auss_data[row_last]=auss_data[row_base];
+                    aussee_data[row_last]=aussee_data[row_base];
+                    aussww_data[row_last]=aussww_data[row_base];
+                    ausse_data[row_last]=ausse_data[row_base];
+                    aussw_data[row_last]=aussw_data[row_base];
+                    ausee_data[row_last]=ausee_data[row_base];
+                    ausww_data[row_last]=ausww_data[row_base];
+                    auee_data[row_last]=auee_data[row_base];
+                    auww_data[row_last]=auww_data[row_base];
 
-                        ate_data[row_last]=ate_data[row_base];
-                        atw_data[row_last]=atw_data[row_base];
-                        atn_data[row_last]=atn_data[row_base];
-                        ats_data[row_last]=ats_data[row_base];
-                        atne_data[row_last]=atne_data[row_base];
-                        atse_data[row_last]=atse_data[row_base];
-                        atsw_data[row_last]=atsw_data[row_base];
-                        atnw_data[row_last]=atnw_data[row_base];
-                        atp_data[row_last]=atp_data[row_base];
+                    ate_data[row_last]=ate_data[row_base];
+                    atw_data[row_last]=atw_data[row_base];
+                    atn_data[row_last]=atn_data[row_base];
+                    ats_data[row_last]=ats_data[row_base];
+                    atne_data[row_last]=atne_data[row_base];
+                    atse_data[row_last]=atse_data[row_base];
+                    atsw_data[row_last]=atsw_data[row_base];
+                    atnw_data[row_last]=atnw_data[row_base];
+                    atp_data[row_last]=atp_data[row_base];
 
-                        atnn_data[row_last]=atnn_data[row_base];
-                        atnnee_data[row_last]=atnnee_data[row_base];
-                        atnnww_data[row_last]=atnnww_data[row_base];
-                        atnne_data[row_last]=atnne_data[row_base];
-                        atnnw_data[row_last]=atnnw_data[row_base];
-                        atnee_data[row_last]=atnee_data[row_base];
-                        atnww_data[row_last]=atnww_data[row_base];
-                        atss_data[row_last]=atss_data[row_base];
-                        atssee_data[row_last]=atssee_data[row_base];
-                        atssww_data[row_last]=atssww_data[row_base];
-                        atsse_data[row_last]=atsse_data[row_base];
-                        atssw_data[row_last]=atssw_data[row_base];
-                        atsee_data[row_last]=atsee_data[row_base];
-                        atsww_data[row_last]=atsww_data[row_base];
-                        atee_data[row_last]=atee_data[row_base];
-                        atww_data[row_last]=atww_data[row_base];
-                    }
+                    atnn_data[row_last]=atnn_data[row_base];
+                    atnnee_data[row_last]=atnnee_data[row_base];
+                    atnnww_data[row_last]=atnnww_data[row_base];
+                    atnne_data[row_last]=atnne_data[row_base];
+                    atnnw_data[row_last]=atnnw_data[row_base];
+                    atnee_data[row_last]=atnee_data[row_base];
+                    atnww_data[row_last]=atnww_data[row_base];
+                    atss_data[row_last]=atss_data[row_base];
+                    atssee_data[row_last]=atssee_data[row_base];
+                    atssww_data[row_last]=atssww_data[row_base];
+                    atsse_data[row_last]=atsse_data[row_base];
+                    atssw_data[row_last]=atssw_data[row_base];
+                    atsee_data[row_last]=atsee_data[row_base];
+                    atsww_data[row_last]=atsww_data[row_base];
+                    atee_data[row_last]=atee_data[row_base];
+                    atww_data[row_last]=atww_data[row_base];
                 }
             }
+        }
+ 
+        // Forming a matrix for Pressure
+        // cout << "Forming matrix for pressure..." << endl;
+        for(int i=0; i<n[0]-1; i++) {
+            int row_base = i * STRIDE_I + 1;  // Start at j=1
+            
+            // Neighbor rows
+            int inn = (i == 0) ? n[0]-2 : i-1;
+            int ipp = i+1;
+            int row_inn = inn * STRIDE_I + 1;
+            int row_ipp = ipp * STRIDE_I + 1;
+            int row_last = (n[0]-1) * STRIDE_I + 1;
+            
+            for(int j=1; j<n[1]-1; j++) {
+                // All indices are just increments - no multiplication!
+                double dxix_ij = dxix_data[row_base];
+                double dxiy_ij = dxiy_data[row_base];
+                double dex_ij = dex_data[row_base];
+                double dey_ij = dey_data[row_base];
 
-            // ----------------------------------------------------
-            // Forming pressure matrix
-            // ----------------------------------------------------
-            #pragma omp for schedule(static) nowait
-            for(int i = 0; i < n[0]-1; i++) {
-                int row_base = i * STRIDE_I + 1;  // Start at j=1
-                
-                // Neighbor rows
-                int inn = (i == 0) ? n[0]-2 : i-1;
-                int ipp = i+1;
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                int row_last = (n[0]-1) * STRIDE_I + 1;
-                
-                // Inner j loop remains sequential within each thread
-                for(int j = 1; j < n[1]-1; j++) {
-                    // Load grid metrics for current point and neighbors
-                    double dxix_ij = dxix_data[row_base];
-                    double dxiy_ij = dxiy_data[row_base];
-                    double dex_ij = dex_data[row_base];
-                    double dey_ij = dey_data[row_base];
+                // Neighbors: just +/- 1 or +/- STRIDE_I
+                double dxix_e = dxix_data[row_ipp];
+                double dxix_w = dxix_data[row_inn];
+                double dxix_n = dxix_data[row_base + 1];
+                double dxix_s = dxix_data[row_base - 1];
 
-                    // Neighbors: just +/- 1 or +/- STRIDE_I
-                    double dxix_e = dxix_data[row_ipp];
-                    double dxix_w = dxix_data[row_inn];
-                    double dxix_n = dxix_data[row_base + 1];
-                    double dxix_s = dxix_data[row_base - 1];
-                    
-                    double dxiy_e = dxiy_data[row_ipp];
-                    double dxiy_w = dxiy_data[row_inn];
-                    double dxiy_n = dxiy_data[row_base + 1];
-                    double dxiy_s = dxiy_data[row_base - 1];
-                    
-                    double dex_e = dex_data[row_ipp];
-                    double dex_w = dex_data[row_inn];
-                    double dex_n = dex_data[row_base + 1];
-                    double dex_s = dex_data[row_base - 1];
-                    
-                    double dey_e = dey_data[row_ipp];
-                    double dey_w = dey_data[row_inn];
-                    double dey_n = dey_data[row_base + 1];
-                    double dey_s = dey_data[row_base - 1];
+                double dxiy_e = dxiy_data[row_ipp];
+                double dxiy_w = dxiy_data[row_inn];
+                double dxiy_n = dxiy_data[row_base + 1];
+                double dxiy_s = dxiy_data[row_base - 1];
 
-                    // EAST COMPONENT
-                    ae_data[row_base] = (dxix_ij/(2.0*dxi(0)*dxi(0)))*(dxix_ij + dxix_e)
-                                + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_n - dxix_s)
-                                + (dxiy_ij/(2.0*dxi(0)*dxi(0)))*(dxiy_ij + dxiy_e)
-                                + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_n - dxiy_s);
+                double dex_e = dex_data[row_ipp];
+                double dex_w = dex_data[row_inn];
+                double dex_n = dex_data[row_base + 1];
+                double dex_s = dex_data[row_base - 1];
 
-                    // WEST COMPONENT
-                    aw_data[row_base] = (dxix_ij/(2.0*dxi(0)*dxi(0)))*(dxix_ij + dxix_w)
-                                + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_s - dxix_n)
-                                + (dxiy_ij/(2.0*dxi(0)*dxi(0)))*(dxiy_ij + dxiy_w)
-                                + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_s - dxiy_n);
+                double dey_e = dey_data[row_ipp];
+                double dey_w = dey_data[row_inn];
+                double dey_n = dey_data[row_base + 1];
+                double dey_s = dey_data[row_base - 1];
 
-                    // NORTH COMPONENT
-                    an_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_e - dex_w)
-                                + (dex_ij/(2.0*dxi(1)*dxi(1)))*(dex_ij + dex_n)
-                                + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_e - dey_w)
-                                + (dey_ij/(2.0*dxi(1)*dxi(1)))*(dey_ij + dey_n);
+                // EAST COMPONENT
+                ae_data[row_base] = (dxix_ij/(2.0*dxi(0)*dxi(0)))*(dxix_ij + dxix_e)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_n - dxix_s)
+                            + (dxiy_ij/(2.0*dxi(0)*dxi(0)))*(dxiy_ij + dxiy_e)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_n - dxiy_s);
 
-                    // SOUTH COMPONENT
-                    as_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_w - dex_e)
-                                + (dex_ij/(2.0*dxi(1)*dxi(1)))*(dex_ij + dex_s)
-                                + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_w - dey_e)
-                                + (dey_ij/(2.0*dxi(1)*dxi(1)))*(dey_ij + dey_s);
+                // WEST COMPONENT
+                aw_data[row_base] = (dxix_ij/(2.0*dxi(0)*dxi(0)))*(dxix_ij + dxix_w)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_s - dxix_n)
+                            + (dxiy_ij/(2.0*dxi(0)*dxi(0)))*(dxiy_ij + dxiy_w)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_s - dxiy_n);
 
-                    // NORTH EAST
-                    ane_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_e)
-                                + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_n)
-                                + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_e)
-                                + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_n);
+                // NORTH COMPONENT
+                an_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_e - dex_w)
+                            + (dex_ij/(2.0*dxi(1)*dxi(1)))*(dex_ij + dex_n)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_e - dey_w)
+                            + (dey_ij/(2.0*dxi(1)*dxi(1)))*(dey_ij + dey_n);
 
-                    // SOUTH WEST
-                    asw_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_w)
-                                + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_s)
-                                + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_w)
-                                + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_s);
+                // SOUTH COMPONENT
+                as_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_w - dex_e)
+                            + (dex_ij/(2.0*dxi(1)*dxi(1)))*(dex_ij + dex_s)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_w - dey_e)
+                            + (dey_ij/(2.0*dxi(1)*dxi(1)))*(dey_ij + dey_s);
 
-                    // NORTH WEST
-                    anw_data[row_base] = -(dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_w)
-                                - (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_n)
-                                - (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_w)
-                                - (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_n);
+                // NORTH EAST
+                ane_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_e)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_n)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_e)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_n);
 
-                    // SOUTH EAST
-                    ase_data[row_base] = -(dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_e)
-                                - (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_s)
-                                - (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_e)
-                                - (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_s);
+                // SOUTH WEST
+                asw_data[row_base] = (dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_w)
+                            + (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_s)
+                            + (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_w)
+                            + (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_s);
 
-                    // CENTER (P)
-                    double pxi = 1.0/(2.0*dxi(0)*dxi(0));
-                    double pet = 1.0/(2.0*dxi(1)*dxi(1));
-                    ap_data[row_base] = pxi * (-dxix_ij * (2.0*dxix_ij + dxix_w + dxix_e))
-                                + pet * (-dex_ij * (2.0*dex_ij + dex_s + dex_n))
-                                + pxi * (-dxiy_ij * (2.0*dxiy_ij + dxiy_w + dxiy_e))
-                                + pet * (-dey_ij * (2.0*dey_ij + dey_s + dey_n));
+                // NORTH WEST
+                anw_data[row_base] = -(dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_w)
+                            - (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_n)
+                            - (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_w)
+                            - (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_n);
 
-                    // Periodic BC
-                    if (i == 0) {
-                        ae_data[row_last] = ae_data[row_base];
-                        aw_data[row_last] = aw_data[row_base];
-                        an_data[row_last] = an_data[row_base];
-                        as_data[row_last] = as_data[row_base];
-                        ane_data[row_last] = ane_data[row_base];
-                        ase_data[row_last] = ase_data[row_base];
-                        asw_data[row_last] = asw_data[row_base];
-                        anw_data[row_last] = anw_data[row_base];
-                        ap_data[row_last] = ap_data[row_base];
-                    }
-                    
-                    // Increment all for next j
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    row_last++;
+                // SOUTH EAST
+                ase_data[row_base] = -(dxix_ij/(8.0*dxi(0)*dxi(1)))*(dex_ij + dex_e)
+                            - (dex_ij/(8.0*dxi(0)*dxi(1)))*(dxix_ij + dxix_s)
+                            - (dxiy_ij/(8.0*dxi(0)*dxi(1)))*(dey_ij + dey_e)
+                            - (dey_ij/(8.0*dxi(0)*dxi(1)))*(dxiy_ij + dxiy_s);
+
+                // CENTER (P)
+                double pxi = 1.0/(2.0*dxi(0)*dxi(0));
+                double pet = 1.0/(2.0*dxi(1)*dxi(1));
+                ap_data[row_base] = pxi * (-dxix_ij * (2.0*dxix_ij + dxix_w + dxix_e))
+                            + pet * (-dex_ij * (2.0*dex_ij + dex_s + dex_n))
+                            + pxi * (-dxiy_ij * (2.0*dxiy_ij + dxiy_w + dxiy_e))
+                            + pet * (-dey_ij * (2.0*dey_ij + dey_s + dey_n));
+
+                // Periodic BC
+                if (i == 0) {
+                    ae_data[row_last] = ae_data[row_base];
+                    aw_data[row_last] = aw_data[row_base];
+                    an_data[row_last] = an_data[row_base];
+                    as_data[row_last] = as_data[row_base];
+                    ane_data[row_last] = ane_data[row_base];
+                    ase_data[row_last] = ase_data[row_base];
+                    asw_data[row_last] = asw_data[row_base];
+                    anw_data[row_last] = anw_data[row_base];
+                    ap_data[row_last] = ap_data[row_base];
                 }
+                
+                // Increment all for next j
+                row_base++;
+                row_inn++;
+                row_ipp++;
+                row_last++;
             }
-        } // ← END OF PARALLEL REGION
-
+        }
 
         // auto end = chrono::high_resolution_clock::now();
         // auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
@@ -918,10 +897,14 @@ public:
         //----------------------------------------------------------
         //START OF TIME LOOP
         //----------------------------------------------------------
-        
+        // cout << "Starting time loop..." << endl;
+
         auto start = chrono::high_resolution_clock::now();
 
-        // Extract ALL pointers ONCE (before time loop)
+        double d2u[3];
+        double conv[3];
+        double alc[3];
+        
         double* u_data = u.data();
         double* up_data = up.data();
         double* uold_data = uold.data();
@@ -968,37 +951,35 @@ public:
         double* dil_data = dil.data();
         double* vort_data = vort.data();
 
-        // Outer time loop
-        for(loop=0; loop<MAXSTEP; loop++){
+        // Outer loop
+        for(loop=0;loop<MAXSTEP;loop++){
             time = time + dt;
-            
-            // ========================================
             // Flow Field inside domain
             // U in xi and eta
-            // ========================================
-            #pragma omp parallel for collapse(2)
+            // cout << "Calculating flow field inside domain (U in xi and eta)..." << endl;
             for(int i=0; i<n[0]; i++){
+                int idx_base = i * STRIDE_I;
+                int u0_base = idx_base;
+                int u1_base = idx_base + STRIDE_K;
+                int u2_base = idx_base + 2*STRIDE_K;
+                
                 for(int j=0; j<n[1]; j++){
-                    int idx_base = i * STRIDE_I + j;
-                    int u0_base = idx_base;
-                    int u1_base = idx_base + STRIDE_K;
-                    int u2_base = idx_base + 2*STRIDE_K;
-                    
                     uxi_data[idx_base] = dxix_data[idx_base]*u_data[u0_base] + dxiy_data[idx_base]*u_data[u1_base];
                     uet_data[idx_base] = dex_data[idx_base]*u_data[u0_base] + dey_data[idx_base]*u_data[u1_base];
                     uold_data[u2_base] = u_data[u2_base];
+                    
+                    idx_base++;
+                    u0_base++;
+                    u1_base++;
+                    u2_base++;
                 }
             }
 
-            // ========================================
-            // Convection term - PARALLELIZED
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            double dp_dxi, dp_de, dp_dx, dp_dy;
+            // Convection term
+            // k loop starts
+            // cout << "Calculating convection term..." << endl;
             for(int i=0; i<n[0]-1; i++) {
-                //Each thread gets its own stack copy (thread-private)
-                double conv[3];
-                double dp_dxi, dp_de, dp_dx, dp_dy;
-                
                 // Pre-calculate ALL row bases for this i
                 int row_base = i * STRIDE_I + 1;  // Start at j=1
                 
@@ -1089,6 +1070,7 @@ public:
                             pec2 = uet_ij*Re*Pr*dxi_data[1]/gamma_ij;
                         }
                         
+                        // ===== XI DIRECTION DERIVATIVE =====
                         double du_xi;
                         if(j >= 2 && j <= n[1]-3) {
                             if(pec1 <= 2 && pec1 > -2) {
@@ -1111,6 +1093,7 @@ public:
                             du_xi = (1.0/12.0)*(xpp-xnn)/dxi_data[0];
                         }
 
+                        // ===== ETA DIRECTION DERIVATIVE =====
                         double du_et;
                         if (j >= 2 && j <= n[1]-3) {
                             if (pec2 <= 2 && pec2 > -2) {
@@ -1240,14 +1223,13 @@ public:
                 }
             }
 
-            // ========================================
-            // SOLVING U-VELOCITY
-            // ========================================
-            #pragma omp parallel for collapse(2) schedule(static)
+            // Copy u[0] to sol
             for(int i = 0; i < n[0]; i++) {
-                for(int j = 0; j < n[1]; j++) {
-                    int idx = i * STRIDE_I + j;
-                    sol_data[idx] = u_data[idx];  // u[0][i][j]
+                int idx_base = i * STRIDE_I;
+                int u0_base = idx_base;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u0_base++) {
+                    sol_data[idx_base] = u_data[u0_base];
                 }
             }
 
@@ -1256,31 +1238,27 @@ public:
                 aunee, aunww, auee, auww, sol, qu);
 
             // Update us[0] array
-            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0]-1; i++) {
                 int idx_base = i * STRIDE_I + 1;
                 int us0_base = idx_base;
                 int us0_last = (n[0]-1) * STRIDE_I + 1;
                 
-                for(int j = 1; j < n[1]-1; j++) {
+                for(int j = 1; j < n[1]-1; j++, idx_base++, us0_base++, us0_last++) {
                     us_data[us0_base] = sol_data[idx_base];
                     if (i == 0) {
                         us_data[us0_last] = sol_data[idx_base];
                     }
-                    idx_base++;
-                    us0_base++;
-                    us0_last++;
                 }
             }
 
-            // ========================================
-            // SOLVING V-VELOCITY
-            // ========================================
-            #pragma omp parallel for collapse(2) schedule(static)
+            // 'solving v-vel'
+            // cout << "Solving v-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                for(int j = 0; j < n[1]; j++) {
-                    int idx = i * STRIDE_I + j;
-                    sol_data[idx] = u_data[idx + STRIDE_K];  // u[1][i][j]
+                int idx_base = i * STRIDE_I;
+                int u1_base = idx_base + STRIDE_K;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u1_base++) {
+                    sol_data[idx_base] = u_data[u1_base];
                 }
             }
 
@@ -1288,31 +1266,27 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qv);
 
-            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0]-1; i++) {
                 int idx_base = i * STRIDE_I + 1;
                 int us1_base = idx_base + STRIDE_K;
                 int us1_last = (n[0]-1) * STRIDE_I + 1 + STRIDE_K;
                 
-                for(int j = 1; j < n[1]-1; j++) {
+                for(int j = 1; j < n[1]-1; j++, idx_base++, us1_base++, us1_last++) {
                     us_data[us1_base] = sol_data[idx_base];
                     if (i == 0) {
                         us_data[us1_last] = sol_data[idx_base];
                     }
-                    idx_base++;
-                    us1_base++;
-                    us1_last++;
                 }
             }
 
-            // ========================================
-            // SOLVING TEMPERATURE
-            // ========================================
-            #pragma omp parallel for collapse(2) schedule(static)
+            // 'solving T'
+            // cout << "Solving temperature..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                for(int j = 0; j < n[1]; j++) {
-                    int idx = i * STRIDE_I + j;
-                    sol_data[idx] = u_data[idx + 2*STRIDE_K];  // u[2][i][j]
+                int idx_base = i * STRIDE_I;
+                int u2_base = idx_base + 2*STRIDE_K;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u2_base++) {
+                    sol_data[idx_base] = u_data[u2_base];
                 }
             }
 
@@ -1320,36 +1294,29 @@ public:
                 atssww, atsse, atssw, atsee, atsww, atnn, atnnee, atnnww, atnne, atnw,
                 atnee, atnww, atee, atww, sol, qt);
 
-            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0]-1; i++) {
                 int idx_base = i * STRIDE_I + 1;
                 int u2_base = idx_base + 2*STRIDE_K;
                 int u2_last = (n[0]-1) * STRIDE_I + 1 + 2*STRIDE_K;
                 
-                for(int j = 1; j < n[1]-1; j++) {
+                for(int j = 1; j < n[1]-1; j++, idx_base++, u2_base++, u2_last++) {
                     u_data[u2_base] = sol_data[idx_base];
                     if (i == 0) {
                         u_data[u2_last] = sol_data[idx_base];
                     }
-                    idx_base++;
-                    u2_base++;
-                    u2_last++;
                 }
             }
 
-            // ========================================
-            // SOLVING UP-VELOCITY (Predicted U)
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // 'solving up-vel'
+            // cout << "Solving up-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {
                 int idx = i * STRIDE_I;
                 sol_data[idx] = up_data[idx];  // up[0][i][0]
             }
 
-            #pragma omp parallel for collapse(2) schedule(static)
             for(int i = 0; i < n[0]; i++) {
-                for(int j = 1; j < n[1]; j++) {
-                    int idx_base = i * STRIDE_I + j;
+                int idx_base = i * STRIDE_I + 1;
+                for(int j = 1; j < n[1]; j++, idx_base++) {
                     sol_data[idx_base] = 0.0;
                 }
             }
@@ -1358,36 +1325,29 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qup);
 
-            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0]-1; i++) {
                 int idx_base = i * STRIDE_I + 1;
                 int up0_base = idx_base;
                 int up0_last = (n[0]-1) * STRIDE_I + 1;
                 
-                for(int j = 1; j < n[1]-1; j++) {
+                for(int j = 1; j < n[1]-1; j++, idx_base++, up0_base++, up0_last++) {
                     up_data[up0_base] = sol_data[idx_base];
                     if (i == 0) {
                         up_data[up0_last] = sol_data[idx_base];
                     }
-                    idx_base++;
-                    up0_base++;
-                    up0_last++;
                 }
             }
 
-            // ========================================
-            // SOLVING VP-VELOCITY (Predicted V)
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // 'solving vp-vel'
+            // cout << "Solving vp-velocity..." << endl;
             for(int i = 0; i < n[0]; i++) {
                 int idx = i * STRIDE_I;
                 sol_data[idx] = up_data[idx + STRIDE_K];  // up[1][i][0]
             }
 
-            #pragma omp parallel for collapse(2) schedule(static)
             for(int i = 0; i < n[0]; i++) {
-                for(int j = 1; j < n[1]; j++) {
-                    int idx_base = i * STRIDE_I + j;
+                int idx_base = i * STRIDE_I + 1;
+                for(int j = 1; j < n[1]; j++, idx_base++) {
                     sol_data[idx_base] = 0.0;
                 }
             }
@@ -1396,40 +1356,36 @@ public:
                 aussww, ausse, aussw, ausee, ausww, aunn, aunnee, aunnww, aunne, aunnw,
                 aunee, aunww, auee, auww, sol, qvp);
 
-            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0]-1; i++) {
                 int idx_base = i * STRIDE_I + 1;
                 int up1_base = idx_base + STRIDE_K;
                 int up1_last = (n[0]-1) * STRIDE_I + 1 + STRIDE_K;
                 
-                for(int j = 1; j < n[1]-1; j++) {
+                for(int j = 1; j < n[1]-1; j++, idx_base++, up1_base++, up1_last++) {
                     up_data[up1_base] = sol_data[idx_base];
                     if (i == 0) {
                         up_data[up1_last] = sol_data[idx_base];
                     }
-                    idx_base++;
-                    up1_base++;
-                    up1_last++;
                 }
             }
 
-            // ========================================
-            // UPDATING BOUNDARY CONDITIONS FOR UP
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // ------------------------------------------------------
+            // updating the bc for up
+            // ------------------------------------------------------
+            // cout << "Updating boundary conditions for up..." << endl;
+            int j = n[1] - 1;
+            int up0_base = j;
+            int up1_base = j + STRIDE_K;
+
             for(int i = 0; i < n[0] - 1; i++) {
-                int j = n[1] - 1;
-                int up0_base = i * STRIDE_I + j;
-                int up1_base = up0_base + STRIDE_K;
-                
-                double vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
+                vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
 
                 if(vnn >= 0) {
                     up_data[up0_base] = u_data[up0_base];
                     up_data[up1_base] = u_data[up1_base];
                 }
                 else {
-                    // Extrapolation from interior (reads from j-1, j-2, j-3 in SAME row i)
+                    // Extrapolation from interior
                     up_data[up0_base] = (5.0 * up_data[up0_base - 1] - 4.0 * up_data[up0_base - 2] + up_data[up0_base - 3]) / 2.0;
                     up_data[up1_base] = (5.0 * up_data[up1_base - 1] - 4.0 * up_data[up1_base - 2] + up_data[up1_base - 3]) / 2.0;
                 }
@@ -1439,12 +1395,15 @@ public:
                     up_data[last_idx] = up_data[up0_base];
                     up_data[last_idx + STRIDE_K] = up_data[up1_base];
                 }
+                
+                up0_base += STRIDE_I;
+                up1_base += STRIDE_I;
             }
 
-            // ========================================
-            // STAR VELOCITIES AT i±1/2 and j±1/2
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // ----------------------------------------------------------
+            // calculation of star velocities at i+-1/2 and j+-1/2
+            // ----------------------------------------------------------
+            // cout << "Calculating star velocities at i+-1/2 and j+-1/2..." << endl;
             for(int i = 0; i < n[0] - 1; i++) {
                 int row_base = i * STRIDE_I + 1;
                 
@@ -1527,41 +1486,37 @@ public:
                 }
             }
 
-            // ========================================
-            // INITIALIZE PCOR AND SAVE UOLD
-            // ========================================
-            #pragma omp parallel for schedule(static)
-            for(int i = 0; i < np1 * np2; i++) {
-                pcor_data[i] = 0.0;
-            }
-
-            #pragma omp parallel for collapse(2) schedule(static)
+            // INITIALIZING THE PCORR
+            // cout << "Initializing pcor..." << endl;
             for(int i = 0; i < n[0]; i++) {
-                for(int j = 0; j < n[1]; j++) {
-                    int idx = i * STRIDE_I + j;
-                    uold_data[idx] = u_data[idx];                      // u[0][i][j]
-                    uold_data[idx + STRIDE_K] = u_data[idx + STRIDE_K];  // u[1][i][j]
+                int idx_base = i * STRIDE_I;
+                int u0_base = idx_base;
+                int u1_base = idx_base + STRIDE_K;
+                
+                for(int j = 0; j < n[1]; j++, idx_base++, u0_base++, u1_base++) {
+                    pcor_data[idx_base] = 0;
+                    uold_data[u0_base] = u_data[u0_base];
+                    uold_data[u1_base] = u_data[u1_base];
                 }
             }
 
-            // ========================================
-            // SOLVE PRESSURE CORRECTION (SIP)
-            // ========================================
+            // ----------------------------------------------------
+            // performing Gauss Seidel iterations
+            // ----------------------------------------------------
+            // cout << "Performing Gauss-Seidel iterations..." << endl;
             sip9p(ap, ae, as, an, aw, ase, asw, ane, anw, pcor, q);
 
-            // ========================================
-            // APPLY BOUNDARY CONDITIONS ON PCOR
-            // ========================================
+            // ------apply boundary condition on Pcor
+            // cout << "Applying boundary condition on pcor..." << endl;
             if (norm == 1) {
                 cout << "hello" << endl;
             } else {
                 // Solid boundary (j=0)
-                #pragma omp parallel for schedule(static)
-                for(int i = 0; i < n[0] - 1; i++) {
-                    int j = 0;
-                    int pcor_base = i * STRIDE_I + j;
-                    int pcor_next = pcor_base + 1;
-                    
+                int j = 0;
+                int pcor_base = j;
+                int pcor_next = j + 1;
+                
+                for(int i = 0; i < n[0] - 1; i++, pcor_base += STRIDE_I, pcor_next += STRIDE_I) {
                     pcor_data[pcor_base] = pcor_data[pcor_next];
 
                     if (i == 0) {
@@ -1571,13 +1526,12 @@ public:
                 }
 
                 // Artificial boundary (j=n[1]-1)
-                #pragma omp parallel for schedule(static)
-                for(int i = 0; i < n[0] - 1; i++) {
-                    int j = n[1] - 1;
-                    int pcor_base = i * STRIDE_I + j;
-                    int pcor_prev = pcor_base - 1;
-                    
-                    double vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
+                j = n[1] - 1;
+                pcor_base = j;
+                int pcor_prev = j - 1;
+
+                for(int i = 0; i < n[0] - 1; i++, pcor_base += STRIDE_I, pcor_prev += STRIDE_I) {
+                    vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
 
                     pcor_data[pcor_base] = 0;
                     if(vnn >= 0) 
@@ -1589,10 +1543,11 @@ public:
                     }
                 }
             }
-            // ========================================
-            // UPDATING U AND V FROM PCOR
-            // ========================================
-            #pragma omp parallel for schedule(static)
+
+            // --------------------------------------------------------
+            // -----updating U and V from Pcor in the interior
+            // ---------------------------------------------------------
+            // cout << "Updating U and V from pcor in the interior..." << endl;
             for(int i = 0; i < n[0] - 1; i++) {
                 int row_base = i * STRIDE_I + 1;
                 
@@ -1632,35 +1587,32 @@ public:
                 }
             }
 
-            // Update pressure
-            #pragma omp parallel for schedule(static)
             for(int i = 0; i < n[0] - 1; i++) {
                 int row_base = i * STRIDE_I + 1;
                 int row_last = (n[0]-1) * STRIDE_I + 1;
                 
-                for(int j = 1; j < n[1] - 1; j++) {
+                for(int j = 1; j < n[1] - 1; j++, row_base++, row_last++) {
                     p_data[row_base] = p_data[row_base] + pcor_data[row_base];
 
                     if (i == 0) {
                         p_data[row_last] = p_data[row_base];
                     }
-                    
-                    row_base++;
-                    row_last++;
                 }
             }
 
-            // ========================================
-            // EVALUATING VR AND VTH
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // ==========================================================
+            // Evaluating Vr and Vth from U and V velocity just
+            // before the outer plane in vr,vth index 0 is n[1]-2
+            // ==========================================================
+            // cout << "Evaluating Vr and Vth from U and V velocity..." << endl;
+
+            j = n[1] - 2;
+            int u0_base = j;
+            int u1_base = j + STRIDE_K;
+            int x0_base = j;
+            int x1_base = j + STRIDE_K;
+
             for(int i = 0; i < n[0] - 1; i++) {
-                int j = n[1] - 2;
-                int u0_base = i * STRIDE_I + j;
-                int u1_base = u0_base + STRIDE_K;
-                int x0_base = u0_base;
-                int x1_base = u1_base;
-                
                 double x0 = x_data[x0_base];
                 double x1 = x_data[x1_base];
                 double r = sqrt(x0*x0 + x1*x1);
@@ -1674,18 +1626,23 @@ public:
                     vr_data[n[0] - 1] = vr_data[i];
                     vth_data[n[0] - 1] = vth_data[i];
                 }
+                
+                u0_base += STRIDE_I;
+                u1_base += STRIDE_I;
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
             }
 
-            // ========================================
-            // CALCULATING CIRCULATION (REDUCTION)
-            // ========================================
+            // ===========================================================
+            // Calculating circulation at the 2nd last level in jth
+            // ===========================================================
+            // cout << "Calculating circulation at the 2nd last level..." << endl;
             double circ = 0.0;
-            int j = n[1] - 2;
-            
-            #pragma omp parallel for reduction(+:circ) schedule(static)
-            for(int i = 0; i < n[0] - 1; i++) {
-                int row_base = i * STRIDE_I + j;
-                int row_next = (i == n[0]-2) ? 1 * STRIDE_I + j : (i+1) * STRIDE_I + j;
+            j = n[1] - 2;
+            int row_base = j;
+
+            for(int i = 0; i < n[0] - 1; i++, row_base += STRIDE_I) {
+                int row_next = row_base + STRIDE_I;
                 
                 double de = 1.0 / (n[0] - 2);
                 double f1 = (u_data[row_base] * dey_data[row_base] - u_data[row_base + STRIDE_K] * dex_data[row_base]) * fabs(ajac_data[row_base]);
@@ -1694,19 +1651,18 @@ public:
                 circ += de * 0.5 * (f1 + f2);
             }
 
-            // ========================================
-            // PREDICTING VR AND VTH AT OUTER
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // =========================================================
+            // Predicting values for vr and vth at outer
+            // =========================================================
+            // cout << "Predicting values for vr and vth at outer..." << endl;
+            j = n[1] - 1;
+            int jm1 = j - 1;
+            x0_base = j;
+            x1_base = j + STRIDE_K;
+            int x0_jm1 = jm1;
+            int x1_jm1 = jm1 + STRIDE_K;
+
             for(int i = 0; i < n[0] - 1; i++) {
-                int j = n[1] - 1;
-                int jm1 = j - 1;
-                
-                int x0_base = i * STRIDE_I + j;
-                int x1_base = x0_base + STRIDE_K;
-                int x0_jm1 = i * STRIDE_I + jm1;
-                int x1_jm1 = x0_jm1 + STRIDE_K;
-                
                 double eps = 1e-2;
                 
                 double x0_j = x_data[x0_base];
@@ -1731,19 +1687,26 @@ public:
                     vr_data[np1 + n[0] - 1] = vr_data[np1 + i];
                     vth_data[np1 + n[0] - 1] = vth_data[np1 + i];
                 }
+                
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
+                x0_jm1 += STRIDE_I;
+                x1_jm1 += STRIDE_I;
             }
 
-            // ========================================
-            // UPDATING BC: CYLINDER OSCILLATION
-            // ========================================
+            // --------------------------------------------------
+            // updating the bc of U And V
+            // ---------------------------------------------------
+            // cout << "Updating boundary conditions of U and V..." << endl;
+            // -----------------cylinder_oscillation--------------
+            // cout << "Applying cylinder oscillation boundary condition..." << endl;
+            j = 0;
+
             for(int k = 0; k < 2; k++) {
-                int j = 0;
+                int uk_base = k * STRIDE_K + j;
+                int xother_base = (1-k) * STRIDE_K + j;
                 
-                #pragma omp parallel for schedule(static)
-                for(int i = 0; i < n[0]; i++) {
-                    int uk_base = i * STRIDE_I + j + k * STRIDE_K;
-                    int xother_base = i * STRIDE_I + j + (1-k) * STRIDE_K;
-                    
+                for(int i = 0; i < n[0]; i++, uk_base += STRIDE_I, xother_base += STRIDE_I) {
                     if(k == 0) {
                         u_data[uk_base] = -speed_amp * cos(2.0 * Pi * F * time) * x_data[xother_base];
                         up_data[uk_base] = u_data[uk_base];
@@ -1755,18 +1718,17 @@ public:
                 }
             }
 
-            // Outflow boundary
+            j = n[1] - 1;
+            u0_base = j;
+            u1_base = j + STRIDE_K;
+            int u2_base = j + 2*STRIDE_K;
+            int uold2_base = u2_base;
+            int uold2_jm1 = j - 1 + 2*STRIDE_K;
+            x0_base = j;
+            x1_base = j + STRIDE_K;
+            int uet_base = j;
+
             for(int i = 0; i < n[0] - 1; i++) {
-                int j = n[1] - 1;
-                int u0_base = i * STRIDE_I + j;
-                int u1_base = u0_base + STRIDE_K;
-                int u2_base = u0_base + 2*STRIDE_K;
-                int uold2_base = u2_base;
-                int uold2_jm1 = u2_base - 1;
-                int x0_base = u0_base;
-                int x1_base = u1_base;
-                int uet_base = u0_base;
-                
                 vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
                 
                 if(vnn >= 0) {
@@ -1792,33 +1754,41 @@ public:
                     u_data[last_idx + STRIDE_K] = u_data[u1_base];
                     u_data[last_idx + 2*STRIDE_K] = u_data[u2_base];
                 }
+                
+                u0_base += STRIDE_I;
+                u1_base += STRIDE_I;
+                u2_base += STRIDE_I;
+                uold2_base += STRIDE_I;
+                uold2_jm1 += STRIDE_I;
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
+                uet_base += STRIDE_I;
             }
 
-            // ========================================
-            // APPLY BE FOR UPDATING PRESSURE
-            // ========================================
-            // Update uxi and uet
-            #pragma omp parallel for collapse(2) schedule(static)
+            // =============================
+            // apply BE for updating pressure
+            // =============================
+            // cout << "Applying BE for updating pressure..." << endl;
+            // obtaining the new uxi and uet
             for (int i = 0; i < n[0]; i++) {
+                int base2d = i * STRIDE_I;
+                int u0 = base2d;
+                int u1 = base2d + STRIDE_K;
+                
                 for (int j = 0; j < n[1]; j++) {
-                    int idx = i * STRIDE_I + j;
-                    int u0 = idx;
-                    int u1 = idx + STRIDE_K;
-                    
-                    uxi_data[idx] = dxix_data[idx] * u_data[u0] + dxiy_data[idx] * u_data[u1];
-                    uet_data[idx] = dex_data[idx] * u_data[u0] + dey_data[idx] * u_data[u1];
+                    uxi_data[base2d] = dxix_data[base2d] * u_data[u0] + dxiy_data[base2d] * u_data[u1];
+                    uet_data[base2d] = dex_data[base2d] * u_data[u0] + dey_data[base2d] * u_data[u1];
+                    base2d++;
+                    u0++;
+                    u1++;
                 }
             }
 
-            // ========================================
-            // SOLID BOUNDARY PRESSURE
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // at solid boundary
+            // cout << "Applying at solid boundary..." << endl;
+            
+            j = 0;
             for (int i = 0; i < n[0] - 1; i++) {
-                // Thread-private arrays
-                double conv[3], d2u[3], alc[3];
-                
-                int j = 0;
                 int idx = i * STRIDE_I + j;
                 double dp_dx = 0.0, dp_dy = 0.0;
 
@@ -1827,67 +1797,56 @@ public:
                     d2u[k] = 0.0;
                     alc[k] = 0.0;
 
-                    int inn = (i == 0) ? n[0] - 2 : i - 1;
-                    int ipp = i + 1;
-                    int jpp = j + 1;
-                    int jpp2 = j + 2;
+                    inn = (i == 0) ? n[0] - 2 : i - 1;
+                    ipp = i + 1;
+                    jpp = j + 1;
+                    jpp2 = j + 2;
 
                     int ipp_j = ipp * STRIDE_I + j;
                     int inn_j = inn * STRIDE_I + j;
                     int i_jpp = i * STRIDE_I + jpp;
                     int i_jpp2 = i * STRIDE_I + jpp2;
 
-                    int uk_ij = i * STRIDE_I + j + k * STRIDE_K;
-                    int uk_ipp_j = ipp_j + k * STRIDE_K;
-                    int uk_inn_j = inn_j + k * STRIDE_K;
-                    int uk_i_jpp = i_jpp + k * STRIDE_K;
-                    int uk_i_jpp2 = i_jpp2 + k * STRIDE_K;
+                    int uk_ij = (k == 0) ? (i * STRIDE_I + j) : (i * STRIDE_I + j + STRIDE_K);
+                    int uk_ipp_j = (k == 0) ? (ipp_j) : (ipp_j + STRIDE_K);
+                    int uk_inn_j = (k == 0) ? (inn_j) : (inn_j + STRIDE_K);
+                    int uk_i_jpp = (k == 0) ? (i_jpp) : (i_jpp + STRIDE_K);
+                    int uk_i_jpp2 = (k == 0) ? (i_jpp2) : (i_jpp2 + STRIDE_K);
 
-                    // Diffusive terms
-                    double aa = alph_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_j] - 2.0*u_data[uk_ij]) / (dxi_data[0]*dxi_data[0]);
-                    double gg = gamma_data[idx] * (u_data[uk_i_jpp+1] + u_data[uk_ij] - 2.0*u_data[uk_i_jpp]) / (dxi_data[1]*dxi_data[1]);
-                    double bb = beta_data[idx] * (u_data[ipp*STRIDE_I + jpp + k*STRIDE_K]
-                                                + u_data[uk_inn_j]
-                                                - u_data[inn*STRIDE_I + jpp + k*STRIDE_K]
-                                                - u_data[uk_ipp_j]) / (2.0*dxi_data[0]*dxi_data[1]);
-                    double qqq = q1_data[idx] * (-3.0*u_data[uk_ij] + 4.0*u_data[uk_i_jpp] - u_data[uk_i_jpp2]) / (2.0*dxi_data[1]);
+                    // diffusive
+                    double aa = alph_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_j] - 2.0 * u_data[uk_ij]) / (dxi_data[0] * dxi_data[0]);
+                    double gg = gamma_data[idx] * (u_data[uk_i_jpp + 1] + u_data[uk_ij] - 2.0 * u_data[uk_i_jpp]) / (dxi_data[1] * dxi_data[1]);
+                    double bb = beta_data[idx] * (u_data[(k == 0 ? (ipp * STRIDE_I + jpp) : (ipp * STRIDE_I + jpp + STRIDE_K))] + u_data[uk_inn_j] - u_data[(k == 0 ? (inn * STRIDE_I + jpp) : (inn * STRIDE_I + jpp + STRIDE_K))] - u_data[uk_ipp_j]) / (2.0 * dxi_data[0] * dxi_data[1]);
+                    double qqq = q1_data[idx] * (-3.0 * u_data[uk_ij] + 4.0 * u_data[uk_i_jpp] - u_data[uk_i_jpp2]) / (2.0 * dxi_data[1]);
 
-                    d2u[k] = aa + gg - 2.0*bb + qqq;
+                    d2u[k] = aa + gg - 2.0 * bb + qqq;
 
-                    // Convective terms
+                    // convective
                     conv[k] = uxi_data[idx] * 0.5 * (u_data[uk_ipp_j] - u_data[uk_inn_j]) / dxi_data[0];
                     conv[k] += uet_data[idx] * (u_data[uk_i_jpp] - u_data[uk_ij]) / dxi_data[1];
 
-                    // Local acceleration
+                    // local
                     if (k == 0) {
-                        alc[k] = accn_amp * sin(2.0 * Pi * F * time) * x_data[STRIDE_K + i*STRIDE_I + j];
+                        alc[k] = accn_amp * sin(2.0 * Pi * F * time) * x_data[STRIDE_K + i * STRIDE_I + j];
                     } else {
-                        alc[k] = -accn_amp * sin(2.0 * Pi * F * time) * x_data[i*STRIDE_I + j];
+                        alc[k] = -accn_amp * sin(2.0 * Pi * F * time) * x_data[i * STRIDE_I + j];
                     }
 
-                    if (k == 0) dp_dx = d2u[k]/Re - conv[k] - alc[k];
-                    if (k == 1) dp_dy = d2u[k]/Re - conv[k] - alc[k] + Ri * u_data[2*STRIDE_K + i*STRIDE_I + j];
+                    if (k == 0) dp_dx = d2u[k] / Re - conv[k] - alc[k];
+                    if (k == 1) dp_dy = d2u[k] / Re - conv[k] - alc[k] + Ri * u_data[2 * STRIDE_K + i * STRIDE_I + j];
                 }
 
-                p_data[idx] = p_data[i*STRIDE_I + (j+1)]
-                    - (dp_dx * (-dxiy_data[idx] * ajac_data[idx]) + dp_dy * (dxix_data[idx] * ajac_data[idx])) * dxi_data[1];
+                p_data[idx] = p_data[i * STRIDE_I + (j + 1)] - (dp_dx * (-dxiy_data[idx] * ajac_data[idx]) + dp_dy * (dxix_data[idx] * ajac_data[idx])) * dxi_data[1];
 
-                if (i == 0) p_data[(n[0]-1)*STRIDE_I + j] = p_data[idx];
+                if (i == 0) p_data[(n[0] - 1) * STRIDE_I + j] = p_data[idx];
             }
 
-            // ========================================
-            // EXIT BOUNDARY PRESSURE
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // at exit boundary
+            j = n[1] - 1;
             for (int i = 0; i < n[0] - 1; i++) {
-                //Thread-private arrays
-                double conv[3], d2u[3], alc[3];
-                
-                int j = n[1] - 1;
                 int idx = i * STRIDE_I + j;
-                
-                double vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
-                
+
+                vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
                 if (vnn >= 0.0) {
                     double dp_dx = 0.0, dp_dy = 0.0;
 
@@ -1896,10 +1855,10 @@ public:
                         d2u[k] = 0.0;
                         alc[k] = 0.0;
 
-                        int ipp = i + 1;
-                        int inn = (i == 0) ? n[0] - 2 : i - 1;
-                        int jnn = j - 1;
-                        int jnn2 = j - 2;
+                        ipp = i + 1;
+                        inn = (i == 0) ? n[0] - 2 : i - 1;
+                        jnn = j - 1;
+                        jnn2 = j - 2;
 
                         int ipp_j = ipp * STRIDE_I + j;
                         int inn_j = inn * STRIDE_I + j;
@@ -1908,83 +1867,79 @@ public:
                         int inn_jnn = inn * STRIDE_I + jnn;
                         int i_jnn2 = i * STRIDE_I + jnn2;
 
-                        int uk_ij = i * STRIDE_I + j + k * STRIDE_K;
-                        int uk_ipp_j = ipp_j + k * STRIDE_K;
-                        int uk_inn_j = inn_j + k * STRIDE_K;
-                        int uk_i_jnn = i_jnn + k * STRIDE_K;
-                        int uk_ipp_jnn = ipp_jnn + k * STRIDE_K;
-                        int uk_inn_jnn = inn_jnn + k * STRIDE_K;
-                        int uk_i_jnn2 = i_jnn2 + k * STRIDE_K;
+                        int uk_ij = (k == 0) ? (i * STRIDE_I + j) : (i * STRIDE_I + j + STRIDE_K);
+                        int uk_ipp_j = (k == 0) ? (ipp_j) : (ipp_j + STRIDE_K);
+                        int uk_inn_j = (k == 0) ? (inn_j) : (inn_j + STRIDE_K);
+                        int uk_i_jnn = (k == 0) ? (i_jnn) : (i_jnn + STRIDE_K);
+                        int uk_ipp_jnn = (k == 0) ? (ipp_jnn) : (ipp_jnn + STRIDE_K);
+                        int uk_inn_jnn = (k == 0) ? (inn_jnn) : (inn_jnn + STRIDE_K);
+                        int uk_i_jnn2 = (k == 0) ? (i_jnn2) : (i_jnn2 + STRIDE_K);
 
-                        // Diffusive terms
-                        double aa = alph_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_j] - 2.0*u_data[uk_ij]) / (dxi_data[0]*dxi_data[0]);
-                        double gg = gamma_data[idx] * (u_data[uk_ij] + u_data[uk_i_jnn-1] - 2.0*u_data[uk_i_jnn]) / (dxi_data[1]*dxi_data[1]);
-                        double bb = beta_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_jnn] - u_data[uk_ipp_jnn] - u_data[uk_inn_j]) / (2.0*dxi_data[0]*dxi_data[1]);
-                        double qqq = q1_data[idx] * (3.0*u_data[uk_ij] - 4.0*u_data[uk_i_jnn] + u_data[uk_i_jnn2]) / (2.0*dxi_data[1]);
+                        // diffusive
+                        double aa = alph_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_j] - 2.0 * u_data[uk_ij]) / (dxi_data[0] * dxi_data[0]);
+                        double gg = gamma_data[idx] * (u_data[uk_ij] + u_data[uk_i_jnn - 1] - 2.0 * u_data[uk_i_jnn]) / (dxi_data[1] * dxi_data[1]);
+                        double bb = beta_data[idx] * (u_data[uk_ipp_j] + u_data[uk_inn_jnn] - u_data[uk_ipp_jnn] - u_data[uk_inn_j]) / (2.0 * dxi_data[0] * dxi_data[1]);
+                        double qqq = q1_data[idx] * (3.0 * u_data[uk_ij] - 4.0 * u_data[uk_i_jnn] + u_data[uk_i_jnn2]) / (2.0 * dxi_data[1]);
 
-                        d2u[k] = aa + gg - 2.0*bb + qqq;
+                        d2u[k] = aa + gg - 2.0 * bb + qqq;
 
-                        // Convective terms
+                        // convective
                         conv[k] = uxi_data[idx] * 0.5 * (u_data[uk_ipp_j] - u_data[uk_inn_j]) / dxi_data[0];
-                        conv[k] += uet_data[idx] * (3.0*u_data[uk_ij] - 4.0*u_data[uk_i_jnn] + u_data[uk_i_jnn2]) / (2.0*dxi_data[1]);
+                        conv[k] += uet_data[idx] * (3.0 * u_data[uk_ij] - 4.0 * u_data[uk_i_jnn] + u_data[uk_i_jnn2]) / (2.0 * dxi_data[1]);
 
-                        // Local acceleration
+                        // local
                         alc[k] = (u_data[uk_ij] - uold_data[uk_ij]) / dt;
 
-                        if (k == 0) dp_dx = d2u[k]/Re - conv[k] - alc[k];
-                        if (k == 1) dp_dy = d2u[k]/Re - conv[k] - alc[k] + Ri * u_data[2*STRIDE_K + i*STRIDE_I + j];
+                        if (k == 0) dp_dx = d2u[k] / Re - conv[k] - alc[k];
+                        if (k == 1) dp_dy = d2u[k] / Re - conv[k] - alc[k] + Ri * u_data[2 * STRIDE_K + i * STRIDE_I + j];
                     }
 
-                    p_data[idx] = p_data[i*STRIDE_I + (j-1)]
-                        + (dp_dx * (-dxiy_data[idx] * ajac_data[idx]) + dp_dy * (dxix_data[idx] * ajac_data[idx])) * dxi_data[1];
+                    p_data[idx] = p_data[i * STRIDE_I + (j - 1)] + (dp_dx * (-dxiy_data[idx] * ajac_data[idx]) + dp_dy * (dxix_data[idx] * ajac_data[idx])) * dxi_data[1];
                 } else {
-                    // Gresho condition
-                    p_data[idx] = 0.5 * (1.0/Re) * ((3.0*uet_data[idx] - 4.0*uet_data[i*STRIDE_I + (j-1)] + uet_data[i*STRIDE_I + (j-2)]) / dxi_data[1]);
+                    // Gresho's condition
+                    p_data[idx] = 0.5 * (1.0 / Re) * ((3.0 * uet_data[idx] - 4.0 * uet_data[i * STRIDE_I + (j - 1)] + uet_data[i * STRIDE_I + (j - 2)]) / dxi_data[1]);
                 }
 
-                if (i == 0) p_data[(n[0]-1)*STRIDE_I + j] = p_data[idx];
+                if (i == 0) p_data[(n[0] - 1) * STRIDE_I + j] = p_data[idx];
             }
 
-            // ========================================
-            // STREAM FUNCTION CALCULATION
-            // ========================================
-            #pragma omp parallel for schedule(static)
+            // ----------------------------------
+            // -----calculation of si
+            // ----------------------------------
+            // cout << "Calculating si..." << endl;
+            j = 0;
             for (int i = 0; i < n[0]; i++) {
-                si_data[i*STRIDE_I + 0] = 0.0;
+                si_data[i * STRIDE_I + j] = 0.0;
             }
 
-            // Integration loop - parallelize over i only
-            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n[0]; i++) {
                 for (int jj = 1; jj < n[1]; jj++) {
-                    int idx = i*STRIDE_I + jj;
-                    int idx_jm1 = i*STRIDE_I + (jj-1);
+                    int idx = i * STRIDE_I + jj;
+                    int idx_jm1 = i * STRIDE_I + (jj - 1);
 
-                    double ca = dxix_data[idx] * u_data[i*STRIDE_I + jj] * fabs(ajac_data[idx])
-                            + dxix_data[idx_jm1] * u_data[i*STRIDE_I + (jj-1)] * fabs(ajac_data[idx_jm1]);
-                    double cb = dxiy_data[idx] * u_data[i*STRIDE_I + jj + STRIDE_K] * fabs(ajac_data[idx])
-                            + dxiy_data[idx_jm1] * u_data[i*STRIDE_I + (jj-1) + STRIDE_K] * fabs(ajac_data[idx_jm1]);
+                    double ca = dxix_data[idx] * u_data[i * STRIDE_I + jj] * fabs(ajac_data[idx])
+                            + dxix_data[idx_jm1] * u_data[i * STRIDE_I + (jj - 1)] * fabs(ajac_data[idx_jm1]);
+                    double cb = dxiy_data[idx] * u_data[i * STRIDE_I + jj + STRIDE_K] * fabs(ajac_data[idx])
+                            + dxiy_data[idx_jm1] * u_data[i * STRIDE_I + (jj - 1) + STRIDE_K] * fabs(ajac_data[idx_jm1]);
 
                     si_data[idx] = si_data[idx_jm1] + (ca + cb) * 0.5 * dxi_data[1];
                 }
             }
 
-            // ========================================
+            // ----------------------------
             // DILATION AND VORTICITY
-            // ========================================
+            // ----------------------------
+            // cout << "Calculating dilation and vorticity..." << endl;
+
             dmax = 0.0;
-            
-            #pragma omp parallel for reduction(max:dmax) schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
-                double dmax_local = 0.0;
-                
                 for (int jj = 1; jj < n[1] - 1; jj++) {
                     int idx = i * STRIDE_I + jj;
 
-                    int inn = (i == 0) ? n[0] - 2 : i - 1;
-                    int ipp = i + 1;
-                    int jpp = jj + 1;
-                    int jnn = jj - 1;
+                    inn = (i == 0) ? n[0] - 2 : i - 1;
+                    ipp = i + 1;
+                    jpp = jj + 1;
+                    jnn = jj - 1;
 
                     int ipp_j = ipp * STRIDE_I + jj;
                     int inn_j = inn * STRIDE_I + jj;
@@ -2012,39 +1967,30 @@ public:
                         vort_data[idx_last] = vort_data[idx];
                     }
 
-                    if (dil_data[idx] > dmax_local) dmax_local = dil_data[idx];
+                    if (dil_data[idx] > dmax) dmax = dil_data[idx];
                 }
-                
-                // Update global max with thread-local max
-                if (dmax_local > dmax) dmax = dmax_local;
             }
 
-            // Vorticity at boundaries (j=0 and j=n[1]-1)
-            #pragma omp parallel for schedule(static)
-            for (int i = 0; i < n[0] - 1; i++) {
-                for (int jj = 0; jj < n[1]; jj += n[1] - 1) {
+            for (int jj = 0; jj < n[1]; jj += n[1] - 1) {
+                for (int i = 0; i < n[0] - 1; i++) {
                     int idx = i * STRIDE_I + jj;
 
-                    int inn = (i == 0) ? n[0] - 2 : i - 1;
-                    int ipp = i + 1;
-                    int jpp = jj + 1;
-                    int jnn = jj - 1;
+                    inn = (i == 0) ? n[0] - 2 : i - 1;
+                    ipp = i + 1;
+                    jpp = jj + 1;
+                    jnn = jj - 1;
 
                     double dv_dxi = 0.5 / dxi_data[0] * (u_data[ipp * STRIDE_I + jj + STRIDE_K] - u_data[inn * STRIDE_I + jj + STRIDE_K]);
                     double dv_det;
-                    if (jj == 0)
-                        dv_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jpp + STRIDE_K] - u_data[i * STRIDE_I + jj + STRIDE_K]);
-                    else // jj == n[1]-1
-                        dv_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jj + STRIDE_K] - u_data[i * STRIDE_I + jnn + STRIDE_K]);
+                    if (jj == 0) dv_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jpp + STRIDE_K] - u_data[i * STRIDE_I + jj + STRIDE_K]);
+                    if (jj == n[1] - 1) dv_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jj + STRIDE_K] - u_data[i * STRIDE_I + jnn + STRIDE_K]);
 
                     double dv_dx = dxix_data[idx] * dv_dxi + dex_data[idx] * dv_det;
 
                     double du_dxi = 0.5 / dxi_data[0] * (u_data[ipp * STRIDE_I + jj] - u_data[inn * STRIDE_I + jj]);
                     double du_det;
-                    if (jj == 0)
-                        du_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jpp] - u_data[i * STRIDE_I + jj]);
-                    else // jj == n[1]-1
-                        du_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jj] - u_data[i * STRIDE_I + jnn]);
+                    if (jj == 0) du_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jpp] - u_data[i * STRIDE_I + jj]);
+                    if (jj == n[1] - 1) du_det = 1.0 / dxi_data[1] * (u_data[i * STRIDE_I + jj] - u_data[i * STRIDE_I + jnn]);
 
                     double du_dy = dxiy_data[idx] * du_dxi + dey_data[idx] * du_det;
 
@@ -2054,15 +2000,17 @@ public:
                 }
             }
 
-            cout << loop << " " << dmax << endl;
+            if(rank == 0) {
+                cout << loop << " " << dmax << endl;
+            }
 
-            // ========================================
-            // LIFT, DRAG, MOMENT, NUSSELT NUMBER
-            // ========================================
+            // =========================================================
+            // Calculation of lift,drag,moment and Nusselt number
+            // =========================================================
             j = 0;
+
             double pr_x = 0.0, pr_y = 0.0, vor_x = 0.0, vor_y = 0.0;
 
-            #pragma omp parallel for reduction(+:pr_x,pr_y,vor_x,vor_y) schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 int ip = i + 1;
                 int i_j = i * STRIDE_I + j;
@@ -2102,10 +2050,9 @@ public:
             double cl = cy * sin(alpha * Pi / 180.0) - cx * cos(alpha * Pi / 180.0);
             double cd = cy * cos(alpha * Pi / 180.0) + cx * sin(alpha * Pi / 180.0);
 
-            // Moment & Nusselt terms
+            // moment & Nusselt terms
             double press_i = 0.0, vor_i = 0.0, temp_i = 0.0;
 
-            #pragma omp parallel for reduction(+:press_i,vor_i,temp_i) schedule(static)
             for (int i = 0; i < n[0] - 1; i++) {
                 int ip = i + 1;
                 int i_j = i * STRIDE_I + j;
@@ -2141,10 +2088,10 @@ public:
             double cm = 2.0 * press_i - (2.0 / Re) * vor_i;
             double Nuss = (2.0 * temp_i) / (Pi * (3.0 * (1.0 + (1.0 / ar)) - sqrt((3.0 + (1.0 / ar)) * ((3.0 / ar) + 1.0))));
 
-            // ========================================
-            // FILE WRITING (SERIAL - I/O BOTTLENECK)
-            // ========================================
-            if (loop % 500 == 0) {
+            // ----------------------------------------------------------
+            // FILE WRITING
+            // ----------------------------------------------------------
+            if ((rank == 0) && (loop % 500 == 0)) {
                 ofstream file1("spt100.dat");
                 file1 << "zone" << endl;
                 file1 << "I=" << n[0] << endl;
@@ -2196,7 +2143,9 @@ public:
                     << CL_vor << " " << CD_vor << endl;
                 file4.close();
 
-                // Local Nusselt number profile
+                // ================================================================
+                // local nusselt number profile on cylinder
+                // ================================================================
                 ofstream file5("SURF_DIST.dat");
                 int u2_base_0 = 2 * STRIDE_K;
                 int u2_base_1 = 2 * STRIDE_K + 1;
@@ -2248,160 +2197,16 @@ public:
                     loop_snap = loop_snap + i_loop;
                 }
             }
-            auto end = chrono::high_resolution_clock::now();
-            auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-            cout << "Time taken in Time Loop " << loop << ": " << duration.count() << " ms" << endl;
-         } // ← END OF TIME LOOP
-    } // ← END OF timeLoop() FUNCTION
+        
+            if (rank == 0) {
+                auto end = chrono::high_resolution_clock::now();
+                auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+                cout << "Time taken in Time Loop: " << duration.count() << " ms" << endl;
+            }
 
-    void gauss(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, blitz::Array<double, 2>& as, 
-            blitz::Array<double, 2>& an, blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
-            blitz::Array<double, 2>& asw, blitz::Array<double, 2>& ane, blitz::Array<double, 2>& anw, 
-            blitz::Array<double, 2>& ass, blitz::Array<double, 2>& assee, blitz::Array<double, 2>& assww,
-            blitz::Array<double, 2>& asse, blitz::Array<double, 2>& assw, blitz::Array<double, 2>& asee, 
-            blitz::Array<double, 2>& asww, blitz::Array<double, 2>& ann, blitz::Array<double, 2>& annee, 
-            blitz::Array<double, 2>& annww, blitz::Array<double, 2>& anne, blitz::Array<double, 2>& annw, 
-            blitz::Array<double, 2>& anee, blitz::Array<double, 2>& anww, blitz::Array<double, 2>& aee, 
-            blitz::Array<double, 2>& aww, blitz::Array<double, 2>& phi, blitz::Array<double, 2>& q) {
-        
-        //Extract ALL pointers ONCE
-        double* ap_data = ap.data();
-        double* ae_data = ae.data();
-        double* as_data = as.data();
-        double* an_data = an.data();
-        double* aw_data = aw.data();
-        double* ase_data = ase.data();
-        double* asw_data = asw.data();
-        double* ane_data = ane.data();
-        double* anw_data = anw.data();
-        double* ass_data = ass.data();
-        double* assee_data = assee.data();
-        double* assww_data = assww.data();
-        double* asse_data = asse.data();
-        double* assw_data = assw.data();
-        double* asee_data = asee.data();
-        double* asww_data = asww.data();
-        double* ann_data = ann.data();
-        double* annee_data = annee.data();
-        double* annww_data = annww.data();
-        double* anne_data = anne.data();
-        double* annw_data = annw.data();
-        double* anee_data = anee.data();
-        double* anww_data = anww.data();
-        double* aee_data = aee.data();
-        double* aww_data = aww.data();
-        double* phi_data = phi.data();
-        double* q_data = q.data();
-        
-        double tol = 0.75e-2;
-        int maxiter = 100000;
-        double sumnor = 0.0;
-        
-        for (int iter = 0; iter < maxiter; iter++) {
-            double ssum = 0.0;
-            
-            //PARALLEL GAUSS-SEIDEL with reduction
-            #pragma omp parallel reduction(+:ssum)
-            {
-                #pragma omp for schedule(dynamic, 4) nowait
-                for (int i = 0; i < n[0]-1; i++) {
-                    int row_base = i * STRIDE_I + 1;
-                    
-                    // Calculate neighbor indices ONCE per i
-                    int inn = (i == 0) ? n[0]-2 : i-1;
-                    int inn2 = (i <= 1) ? ((i == 0) ? n[0]-3 : n[0]-2) : i-2;
-                    int ipp = i+1;
-                    int ipp2 = (i == n[0]-2) ? 1 : i+2;
-                    
-                    int row_inn = inn * STRIDE_I + 1;
-                    int row_ipp = ipp * STRIDE_I + 1;
-                    int row_inn2 = inn2 * STRIDE_I + 1;
-                    int row_ipp2 = ipp2 * STRIDE_I + 1;
-                    int row_last = (n[0]-1) * STRIDE_I + 1;
-                    
-                    bool is_first_row = (i == 0);
-                    
-                    for (int j = 1; j < n[1]-1; j++) {
-                        double phi_new;
-                        double res;
-                        
-                        if (j == 1 || j == n[1]-2) {
-                            // ===== SECOND ORDER STENCIL =====
-                            double rhs = q_data[row_base] - 
-                                    ae_data[row_base]*phi_data[row_ipp] - 
-                                    an_data[row_base]*phi_data[row_base + 1] - 
-                                    as_data[row_base]*phi_data[row_base - 1] - 
-                                    aw_data[row_base]*phi_data[row_inn] - 
-                                    anw_data[row_base]*phi_data[row_inn + 1] - 
-                                    ane_data[row_base]*phi_data[row_ipp + 1] - 
-                                    asw_data[row_base]*phi_data[row_inn - 1] - 
-                                    ase_data[row_base]*phi_data[row_ipp - 1];
-                            
-                            res = rhs - ap_data[row_base]*phi_data[row_base];
-                            phi_new = rhs / ap_data[row_base];
-                            
-                        } else {
-                            // ===== FOURTH ORDER STENCIL =====
-                            double rhs = q_data[row_base] - 
-                                    ae_data[row_base]*phi_data[row_ipp] - 
-                                    an_data[row_base]*phi_data[row_base + 1] - 
-                                    as_data[row_base]*phi_data[row_base - 1] - 
-                                    aw_data[row_base]*phi_data[row_inn] - 
-                                    anw_data[row_base]*phi_data[row_inn + 1] - 
-                                    ane_data[row_base]*phi_data[row_ipp + 1] - 
-                                    asw_data[row_base]*phi_data[row_inn - 1] - 
-                                    ase_data[row_base]*phi_data[row_ipp - 1] - 
-                                    aee_data[row_base]*phi_data[row_ipp2] - 
-                                    aww_data[row_base]*phi_data[row_inn2] - 
-                                    annee_data[row_base]*phi_data[row_ipp2 + 2] - 
-                                    anee_data[row_base]*phi_data[row_ipp2 + 1] - 
-                                    asee_data[row_base]*phi_data[row_ipp2 - 1] - 
-                                    assee_data[row_base]*phi_data[row_ipp2 - 2] - 
-                                    anne_data[row_base]*phi_data[row_ipp + 2] - 
-                                    asse_data[row_base]*phi_data[row_ipp - 2] - 
-                                    annw_data[row_base]*phi_data[row_inn + 2] - 
-                                    assw_data[row_base]*phi_data[row_inn - 2] - 
-                                    annww_data[row_base]*phi_data[row_inn2 + 2] - 
-                                    anww_data[row_base]*phi_data[row_inn2 + 1] - 
-                                    asww_data[row_base]*phi_data[row_inn2 - 1] - 
-                                    assww_data[row_base]*phi_data[row_inn2 - 2] - 
-                                    ann_data[row_base]*phi_data[row_base + 2] - 
-                                    ass_data[row_base]*phi_data[row_base - 2];
-                            
-                            res = rhs - ap_data[row_base]*phi_data[row_base];
-                            phi_new = rhs / ap_data[row_base];
-                        }
-                        
-                        ssum += fabs(res);
-                        phi_data[row_base] = phi_new;
-                        
-                        // Handle periodic boundary
-                        if (is_first_row) {
-                            phi_data[row_last] = phi_new;
-                        }
-                        
-                        row_base++;
-                        row_inn++;
-                        row_ipp++;
-                        row_inn2++;
-                        row_ipp2++;
-                        row_last++;
-                    }
-                }
-            } // end parallel region
-            
-            // Compute sumnor only on first iteration
-            if (iter == 0) {
-                sumnor = (ssum != 0.0) ? ssum : 1.0;
-            }
-            
-            double sumav = ssum / sumnor;
-            
-            // Check convergence
-            if (sumav < tol) {
-                break;
-            }
         }
+
+        //END OF TIME LOOP
     }
 
     void sip9p(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, 
@@ -2411,7 +2216,7 @@ public:
             blitz::Array<double, 2>& anw, blitz::Array<double, 2>& phi, 
             blitz::Array<double, 2>& q){
         
-        //Extract ALL pointers ONCE
+        // Get data pointers for contiguous access
         double* ap_data = ap.data();
         double* ae_data = ae.data();
         double* as_data = as.data();
@@ -2419,11 +2224,34 @@ public:
         double* aw_data = aw.data();
         double* ase_data = ase.data();
         double* asw_data = asw.data();
-        double* ane_data = ane.data();
+        double* ane_data = ane.data(); 
         double* anw_data = anw.data();
         double* phi_data = phi.data();
         double* q_data = q.data();
+
+        double tol = 0.75e-2;
+        int maxiter = 100000;
+        double alp = 0.92;
+        double sumnor = 0.0;
+
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &size);  
         
+        //Domain Decomposition
+        const int n0_local = (n[0]-1)/size;
+        // cout << "n0_length :" << n0_local << " rank: " << rank << endl;
+        int remainder = (n[0]-1)%size;
+        // cout << "Remainder :" << remainder << " rank: " << rank << endl;
+        int r_global = rank * n0_local + min(rank, remainder);
+        // cout << "r_global :" << r_global << " rank: " << rank << endl;
+        int r_local = n0_local + (rank < remainder ? 1 : 0);
+        // cout << "r_local :" << r_local << " rank: " << rank << endl;
+
+        // Only 2 Halo's for 9 Pt Stencil
+        blitz::Array<double, 2> phi_local(r_local + 2, n[1]);
+        blitz::Array<double, 2> qp(n[0], n[1]);
+        blitz::Array<double, 2> del(n[0], n[1]); 
+
         // Use class member arrays - get their data pointers
         double* be = sip_be.data();
         double* bw = sip_bw.data();
@@ -2434,32 +2262,49 @@ public:
         double* bnw = sip_bnw.data();
         double* bsw = sip_bsw.data();
         double* bp = sip_bp.data();
-        double* qp = sip_qp.data();
-        double* del = sip_del.data();
         
-        double tol = 0.75e-2;
-        int maxiter = 100000;
-        double alp = 0.92;
-        double sumnor = 0.0;
-        
-        // PARALLEL INITIALIZATION
-        #pragma omp parallel for schedule(static)
-        for (int i = 0; i < np1 * np2; i++) {
-            be[i] = 0.0;
-            bw[i] = 0.0;
-            bs[i] = 0.0;
-            bn[i] = 0.0;
-            bse[i] = 0.0;
-            bne[i] = 0.0;
-            bnw[i] = 0.0;
-            bsw[i] = 0.0;
-            bp[i] = 0.0;
-            qp[i] = 0.0;
-            del[i] = 0.0;
+        double* qp_data = qp.data();
+        double* del_data = del.data();
+        double* phi_local_data = phi_local.data();
+
+        // Initialize LOCAL arrays to zero (automatic for blitz, but explicit for clarity)
+        qp = 0.0;
+        del = 0.0; 
+
+        // Initialize arrays to zero
+        memset(be, 0, np1 * np2 * sizeof(double));
+        memset(bw, 0, np1 * np2 * sizeof(double));
+        memset(bs, 0, np1 * np2 * sizeof(double));
+        memset(bn, 0, np1 * np2 * sizeof(double));
+        memset(bse, 0, np1 * np2 * sizeof(double));
+        memset(bne, 0, np1 * np2 * sizeof(double));
+        memset(bnw, 0, np1 * np2 * sizeof(double));
+        memset(bsw, 0, np1 * np2 * sizeof(double));
+        memset(bp, 0, np1 * np2 * sizeof(double));
+
+        // Populating phi_local
+        for(int i_local = 0; i_local < r_local + 2; i_local++) {
+    
+            int i_global = r_global - 1 + i_local;
+            
+            // Handle periodic boundary
+            if(i_global < 0) {
+                i_global = n[0] - 2;
+            } else if(i_global >= n[0] - 1) {
+                i_global = 0;
+            }
+            
+            int rb_global = i_global * STRIDE_I;
+            int rb_local = i_local * STRIDE_I;
+            
+            for(int j = 0; j < n[1]; j++) {
+                phi_local_data[rb_local] = phi_data[rb_global];
+                rb_global++; 
+                rb_local++;
+            }
         }
         
-        // ===== FORWARD ELIMINATION - SERIAL (Complex dependencies) =====
-        // This MUST remain serial due to j-direction dependencies
+        // Forward elimination - compute L and U matrices (only once)
         for (int i = 0; i < n[0]-1; i++) {
             int row_base = i * STRIDE_I + 1;
             
@@ -2495,7 +2340,7 @@ public:
                 
                 bne[row_base] = ane_data[row_base] * inv_bp;
                 
-                // Handle periodic boundary
+                // Handle periodic boundary - only copy what's needed
                 if (i == 0) {
                     bsw[row_last] = bsw[row_base];
                     bn[row_last] = bn[row_base];
@@ -2512,101 +2357,513 @@ public:
             }
         }
 
-        // ===== MAIN ITERATION LOOP =====
+
+        // Main iteration loop
         for (int iter = 0; iter < maxiter; iter++) {
             double ssum = 0.0;
             
-            // ===== FORWARD SWEEP - PARTIALLY PARALLEL =====
-            // Parallelize over i, but j loop remains serial due to dependencies
-            #pragma omp parallel for reduction(+:ssum) schedule(dynamic)
-            for (int i = 0; i < n[0]-1; i++) {
-                int row_base = i * STRIDE_I + 1;
+            // Forward sweep - compute residual and qp
+            for (int i_local = 1, i_global = r_global; i_local < r_local + 1; i_local++, i_global++) {
+
+                int rb_global = i_global * STRIDE_I + 1;
+                int rb_local = i_local * STRIDE_I + 1;
                 
-                int inn = (i == 0) ? n[0]-2 : i-1;
-                int ipp = i+1;
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                int row_last = (n[0]-1) * STRIDE_I + 1;
+                int rlocal_inn = (i_local - 1) * STRIDE_I + 1;
+                int rlocal_ipp = (i_local + 1) * STRIDE_I + 1;
+                
+                // For global qp indexing
+                int inn_global = (i_global == 0) ? (n[0] - 2) : (i_global - 1);
+                int rglobal_inn = inn_global * STRIDE_I + 1;
                 
                 for (int j = 1; j < n[1]-1; j++) {
                     // Compute residual directly (no array storage)
-                    double res = q_data[row_base] - ap_data[row_base]*phi_data[row_base] - 
-                            ae_data[row_base]*phi_data[row_ipp] - an_data[row_base]*phi_data[row_base + 1] - 
-                            as_data[row_base]*phi_data[row_base - 1] - aw_data[row_base]*phi_data[row_inn] - 
-                            anw_data[row_base]*phi_data[row_inn + 1] - ane_data[row_base]*phi_data[row_ipp + 1] - 
-                            asw_data[row_base]*phi_data[row_inn - 1] - ase_data[row_base]*phi_data[row_ipp - 1];
-                    
+                    double res = q_data[rb_global] - ap_data[rb_global]*phi_local_data[rb_local] - 
+                                ae_data[rb_global]*phi_local_data[rlocal_ipp] - 
+                                an_data[rb_global]*phi_local_data[rb_local + 1] - 
+                                as_data[rb_global]*phi_local_data[rb_local - 1] - 
+                                aw_data[rb_global]*phi_local_data[rlocal_inn] - 
+                                anw_data[rb_global]*phi_local_data[rlocal_inn + 1] - 
+                                ane_data[rb_global]*phi_local_data[rlocal_ipp + 1] - 
+                                asw_data[rb_global]*phi_local_data[rlocal_inn - 1] - 
+                                ase_data[rb_global]*phi_local_data[rlocal_ipp - 1];
+
                     ssum += fabs(res);
                     
-                    // Forward substitution
-                    qp[row_base] = (res - bs[row_base]*qp[row_base - 1] - 
-                            bw[row_base]*qp[row_inn] - bsw[row_base]*qp[row_inn - 1]) / bp[row_base];
+                    // Forward substitution - write to GLOBAL qp array
+                    qp_data[rb_global] = (res - bs[rb_global]*qp_data[rb_global - 1] - 
+                                        bw[rb_global]*qp_data[rglobal_inn] - 
+                                        bsw[rb_global]*qp_data[rglobal_inn - 1]) / bp[rb_global];
                     
-                    // Handle periodic boundary
-                    if (i == 0) {
-                        qp[row_last] = qp[row_base];
+                    // Handle periodic boundary condition (only rank 0)
+                    if (i_global == 0) {
+                        int rb_last = (n[0] - 1) * STRIDE_I + j + 1;
+                        qp_data[rb_last] = qp_data[rb_global];
                     }
                     
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    row_last++;
-                }
-            }
-            
-            // Compute sumnor only on first iteration
-            if (iter == 0) {
-                sumnor = (ssum != 0.0) ? ssum : 1.0;
-            }
-            
-            double sumav = ssum / sumnor;
-            
-            // ===== BACKWARD SWEEP - PARALLEL =====
-            #pragma omp parallel for schedule(static)
-            for (int i = n[0]-2; i >= 0; i--) {
-                int row_base = i * STRIDE_I + n[1] - 2;
-                int ipp = i+1;
-                int row_ipp = ipp * STRIDE_I + n[1] - 2;
-                bool is_periodic = (i == 0);
-                int row_last = (n[0]-1) * STRIDE_I + n[1] - 2;
-                
-                for (int j = n[1]-2; j >= 1; j--) {
-                    // Backward substitution
-                    del[row_base] = qp[row_base] - bn[row_base]*del[row_base + 1] - 
-                            be[row_base]*del[row_ipp] - bne[row_base]*del[row_ipp + 1];
-                    
-                    phi_data[row_base] += del[row_base];
-                    
-                    // Handle periodic boundary
-                    if (is_periodic) {
-                        phi_data[row_last] = phi_data[row_base];
-                    }
-                    
-                    row_base--;
-                    row_ipp--;
-                    row_last--;
+                    rb_global++;
+                    rb_local++;
+                    rlocal_inn++;
+                    rlocal_ipp++;
+                    rglobal_inn++;
                 }
             }
 
-            // Check convergence
-            if (sumav < tol) {
+            // Backward sweep - update phi values
+            for (int i_local = r_local, i_global = r_global + r_local - 1; i_local >= 1; i_local--, i_global--) {
+
+                int rb_global = i_global * STRIDE_I + (n[1] - 2);
+                int rb_local = i_local * STRIDE_I + (n[1] - 2);
+                
+                int ipp_global = i_global + 1;
+                int rglobal_ipp = ipp_global * STRIDE_I + (n[1] - 2);
+                
+                for (int j = n[1]-2; j >= 1; j--) {
+                    // Backward substitution - use GLOBAL qp and del
+                    del_data[rb_global] = qp_data[rb_global] - bn[rb_global]*del_data[rb_global + 1] - 
+                                        be[rb_global]*del_data[rglobal_ipp] - 
+                                        bne[rb_global]*del_data[rglobal_ipp + 1];
+                    
+                    // Update phi_local
+                    phi_local_data[rb_local] += del_data[rb_global];
+                    
+                    rb_global--;
+                    rb_local--;
+                    rglobal_ipp--;
+                }
+            }
+
+            // Handle periodic boundary after backward sweep
+            if (rank == 0) {
+                // Send first row (i_global=0) to last rank
+                int rb_local_first = 1 * STRIDE_I;
+                MPI_Send(&phi_local_data[rb_local_first], n[1], MPI_DOUBLE, size-1, 75, MPI_COMM_WORLD);
+                
+                // Receive last rank's row n[0]-2 into top halo for next iteration
+                int rb_local_top = 0 * STRIDE_I;
+                MPI_Recv(&phi_local_data[rb_local_top], n[1], MPI_DOUBLE, size-1, 90, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+            }
+
+            if (rank == size - 1) {
+                // Receive rank 0's row 0 into local phi_data[n[0]-1] for periodic BC
+                int rb_last = (r_local+1) * STRIDE_I;
+                MPI_Recv(&phi_local_data[rb_last], n[1], MPI_DOUBLE, 0, 75, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                
+                // Send own last row (n[0]-2) to rank 0's top halo
+                int rb_local_last = (r_local) * STRIDE_I;
+                MPI_Send(&phi_local_data[rb_local_last], n[1], MPI_DOUBLE, 0, 90, MPI_COMM_WORLD);
+
+            }
+
+            // Each rank receives top halo from rank above and 
+            if (rank > 0) {
+                int rb_local_top_halo = 0 * n[1];    // Top halo position
+                MPI_Recv(&phi_local_data[rb_local_top_halo], n[1], MPI_DOUBLE, rank-1, 303, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+                // int rb_local_top_row = 1 * n[1];  
+                // MPI_Send(&phi_local_data[rb_local_top_row], n[1], MPI_DOUBLE, rank-1, 505, MPI_COMM_WORLD);
+            }
+
+            // Each rank sends its last interior row to rank above
+            if (rank < size-1) {
+                int rb_local_last_row = r_local * n[1];  // My first interior row
+                MPI_Send(&phi_local_data[rb_local_last_row], n[1], MPI_DOUBLE, rank+1, 303, MPI_COMM_WORLD);
+
+                // int rb_local_bottom_halo = (r_local+1) * n[1];  // Bottom halo
+                // MPI_Recv(&phi_local_data[rb_local_bottom_halo], n[1], MPI_DOUBLE, rank+1, 505, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            }
+
+            double global_ssum = 0.0;
+            MPI_Allreduce(&ssum, &global_ssum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+            // Compute sumnor only on first iteration (all ranks do this)
+            if (iter == 0) {
+                sumnor = (global_ssum != 0.0) ? global_ssum : 1.0;
+            }
+
+            double sumav = global_ssum / sumnor;
+
+            // Check convergence (all ranks check)
+            int converged = (sumav < tol) ? 1 : 0;
+
+            if (rank == 0) {
+                // cout << "Ssum: " << global_ssum << " Sumav: " << sumav << " Sumnor: " << sumnor << endl;
+                if (converged) {
+                    // cout << "Converged! sumav: " << sumav << endl;
+                }
+            }
+
+            if (converged) {
                 break;
-            }  
+            }
         }
+
+        // Finally gather Phi from all processors to processor 0
+        double* send = phi_local_data + 1 * STRIDE_I;
+
+        // Stores index relative count allocated on each rank
+        blitz::Array<int, 1> recvcounts;
+        // Stores start position for each rank in the recv buffer
+        blitz::Array<int, 1> displs;
+
+        if (rank == 0) {
+            recvcounts.resize(size);
+            displs.resize(size);
+            int* recvcounts_ptr = recvcounts.data();
+            int* displs_ptr = displs.data();
+            
+            int offset = 0;
+            for (int p = 0; p < size; p++) {
+
+                int p_r_l = n0_local + (p < remainder ? 1 : 0);
+                
+                recvcounts_ptr[p] = p_r_l * n[1];
+                displs_ptr[p] = offset;
+                offset += recvcounts_ptr[p];
+            }
+        }
+
+        // Gather all data to rank 0
+        MPI_Gatherv(send,                           // Send from interior rows directly
+                    r_local * n[1],                       // Send count
+                    MPI_DOUBLE,                     // Send type
+                    phi_data,                       // Receive buffer (only valid on rank 0)
+                    recvcounts.data(),              // Receive counts array
+                    displs.data(),                  // Displacements array
+                    MPI_DOUBLE,                     // Receive type
+                    0,                              // Root rank
+                    MPI_COMM_WORLD);                // Communicator
+
+        // Handle periodic boundary on rank 0
+        // Copy first row to last row
+        if (rank == 0) {
+            double* phi_last_row = phi_data + (n[0] - 1) * n[1];
+            double* phi_first_row = phi_data;
+            
+            for (int j = 0; j < n[1]; j++) {
+                phi_last_row[j] = phi_first_row[j];
+            }
+        }
+
+        // Broadcast complete phi to all ranks
+        MPI_Bcast(phi_data,                // Buffer
+                    n[0] * n[1],                 // Count (all rows including periodic)
+                    MPI_DOUBLE,              // Type
+                    0,                       // Root
+                    MPI_COMM_WORLD);         // Communicator
+    }
+
+    void gauss(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, blitz::Array<double, 2>& as, 
+            blitz::Array<double, 2>& an, blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
+            blitz::Array<double, 2>& asw, blitz::Array<double, 2>& ane, blitz::Array<double, 2>& anw, 
+            blitz::Array<double, 2>& ass, blitz::Array<double, 2>& assee, blitz::Array<double, 2>& assww,
+            blitz::Array<double, 2>& asse, blitz::Array<double, 2>& assw, blitz::Array<double, 2>& asee, 
+            blitz::Array<double, 2>& asww, blitz::Array<double, 2>& ann, blitz::Array<double, 2>& annee, 
+            blitz::Array<double, 2>& annww, blitz::Array<double, 2>& anne, blitz::Array<double, 2>& annw, 
+            blitz::Array<double, 2>& anee, blitz::Array<double, 2>& anww, blitz::Array<double, 2>& aee, 
+            blitz::Array<double, 2>& aww, blitz::Array<double, 2>& phi, blitz::Array<double, 2>& q) {
+        
+        // Get data pointers for contiguous access
+        double* ap_data = ap.data();
+        double* ae_data = ae.data();
+        double* as_data = as.data();
+        double* an_data = an.data();
+        double* aw_data = aw.data();
+        double* ase_data = ase.data();
+        double* asw_data = asw.data();
+        double* ane_data = ane.data();
+        double* anw_data = anw.data();
+        double* ass_data = ass.data();
+        double* assee_data = assee.data();
+        double* assww_data = assww.data();
+        double* asse_data = asse.data();
+        double* assw_data = assw.data();
+        double* asee_data = asee.data();
+        double* asww_data = asww.data();
+        double* ann_data = ann.data();
+        double* annee_data = annee.data();
+        double* annww_data = annww.data();
+        double* anne_data = anne.data();
+        double* annw_data = annw.data();
+        double* anee_data = anee.data();
+        double* anww_data = anww.data();
+        double* aee_data = aee.data();
+        double* aww_data = aww.data();
+        double* phi_data = phi.data();
+        double* q_data = q.data();
+        
+        double tol = 0.75e-2;
+        int maxiter = 100000;
+        double sumnor = 0.0;
+
+        //Domain Decomposition
+        const int n0_local = (n[0]-1)/size;
+        // cout << "n0_l :" << n0_local << endl;
+        int remainder = (n[0]-1)%size;
+        // cout << "Remainder :" << remainder << endl;
+        int r_index = rank * n0_local + min(rank, remainder);
+        // cout << "r_0 :" << r_index << endl;
+        int r_local = n0_local + (rank < remainder ? 1 : 0);
+        // cout << "r_l :" << r_local << endl;
+
+        // local variables
+        blitz::Array<double, 2> phi_local{r_local + 4, n[1]}; // 4 halo rows
+            
+        double* phi_local_data = phi_local.data();
+        for( int i_local = 0, i_global = r_index-2; i_local < r_local + 4; i_local++, i_global++) {
+            i_global = i_global % (n[0] - 1);
+
+            if(i_global == -1) i_global = n[0] - 2;
+            else if(i_global == -2) i_global = n[0] - 3;
+            int rb_global = i_global * STRIDE_I;
+            int rb_local = i_local * STRIDE_I;
+            
+            for(int j = 0; j < n[1]; j++) {
+                phi_local_data[rb_local] = phi_data[rb_global];
+                
+                rb_global++;
+                rb_local++;
+            }
+        }
+
+        // cout << "Hello1" << endl;
+
+        //Ensure all ranks finish initialization
+        MPI_Barrier(MPI_COMM_WORLD);
+
+        for (int iter = 0; iter < maxiter; iter++) {
+            double ssum = 0.0;
+            
+            // Combined residual computation and phi update in single pass
+            for( int i_local = 2, i_global = r_index; i_local < r_local + 2; i_local++, i_global++) {
+
+                int rb_global = i_global * STRIDE_I + 1;
+                int rb_local = i_local * STRIDE_I + 1;
+                
+                int rlocal_inn = ( i_local - 1 )* STRIDE_I + 1;
+                int rlocal_ipp = ( i_local + 1 ) * STRIDE_I + 1;
+                int rlocal_inn2 = ( i_local - 2 ) * STRIDE_I + 1;
+                int rlocal_ipp2 = ( i_local + 2 ) * STRIDE_I + 1;
+                
+                // bool is_first_row = (i == 0);
+                
+
+                for (int j = 1; j < n[1]-1; j++) {
+                    double phi_new;
+                    double res;
+                    
+                    if (j == 1 || j == n[1]-2) {
+                        // Second order stencil
+                        double rhs = q_data[rb_global] - 
+                                ae_data[rb_global]*phi_local_data[rlocal_ipp] - 
+                                an_data[rb_global]*phi_local_data[rb_local + 1] - 
+                                as_data[rb_global]*phi_local_data[rb_local - 1] - 
+                                aw_data[rb_global]*phi_local_data[rlocal_inn] - 
+                                anw_data[rb_global]*phi_local_data[rlocal_inn + 1] - 
+                                ane_data[rb_global]*phi_local_data[rlocal_ipp + 1] - 
+                                asw_data[rb_global]*phi_local_data[rlocal_inn - 1] - 
+                                ase_data[rb_global]*phi_local_data[rlocal_ipp - 1];
+                        
+                        res = rhs - ap_data[rb_global]*phi_local_data[rb_local];
+                        phi_new = rhs / ap_data[rb_global];
+                        
+                    } else {
+                        // Fourth order stencil
+                        double rhs = q_data[rb_global] - 
+                                ae_data[rb_global]*phi_local_data[rlocal_ipp] - 
+                                an_data[rb_global]*phi_local_data[rb_local + 1] - 
+                                as_data[rb_global]*phi_local_data[rb_local - 1] - 
+                                aw_data[rb_global]*phi_local_data[rlocal_inn] - 
+                                anw_data[rb_global]*phi_local_data[rlocal_inn + 1] - 
+                                ane_data[rb_global]*phi_local_data[rlocal_ipp + 1] - 
+                                asw_data[rb_global]*phi_local_data[rlocal_inn - 1] - 
+                                ase_data[rb_global]*phi_local_data[rlocal_ipp - 1] - 
+                                aee_data[rb_global]*phi_local_data[rlocal_ipp2] - 
+                                aww_data[rb_global]*phi_local_data[rlocal_inn2] - 
+                                annee_data[rb_global]*phi_local_data[rlocal_ipp2 + 2] - 
+                                anee_data[rb_global]*phi_local_data[rlocal_ipp2 + 1] - 
+                                asee_data[rb_global]*phi_local_data[rlocal_ipp2 - 1] - 
+                                assee_data[rb_global]*phi_local_data[rlocal_ipp2 - 2] - 
+                                anne_data[rb_global]*phi_local_data[rlocal_ipp + 2] - 
+                                asse_data[rb_global]*phi_local_data[rlocal_ipp - 2] - 
+                                annw_data[rb_global]*phi_local_data[rlocal_inn + 2] - 
+                                assw_data[rb_global]*phi_local_data[rlocal_inn - 2] - 
+                                annww_data[rb_global]*phi_local_data[rlocal_inn2 + 2] - 
+                                anww_data[rb_global]*phi_local_data[rlocal_inn2 + 1] - 
+                                asww_data[rb_global]*phi_local_data[rlocal_inn2 - 1] - 
+                                assww_data[rb_global]*phi_local_data[rlocal_inn2 - 2] - 
+                                ann_data[rb_global]*phi_local_data[rb_local + 2] - 
+                                ass_data[rb_global]*phi_local_data[rb_local - 2];
+                        
+                        res = rhs - ap_data[rb_global]*phi_local_data[rb_local];
+                        phi_new = rhs / ap_data[rb_global];
+                    }
+                    
+                    ssum += fabs(res);
+                    phi_local_data[rb_local] = phi_new;
+
+                    rb_global++; rb_local++;
+                    rlocal_inn++; rlocal_ipp++; rlocal_inn2++; rlocal_ipp2++;
+                }
+            }
+
+            // cout << "Hello2" << endl;
+           
+            double global_ssum = 0.0;
+            MPI_Reduce(&ssum, &global_ssum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
+            // if (rank == 0 ) { cout << "global_ssum is :" << global_ssum << endl; }
+
+            // Convergence check
+            double sumav = 0.0;
+            int converged = 0;
+
+            if (rank == 0) {
+                // Compute sumnor only on first iteration
+                if (iter == 0) {
+                    sumnor = (global_ssum != 0.0) ? global_ssum : 1.0;
+                    if (sumnor == 0.0) sumnor = 1.0;
+                }
+                
+                sumav = global_ssum / sumnor;
+                
+                // Check convergence
+                if (sumav < tol) {
+                    // std::cout << "Gauss converged at iteration " << iter 
+                    //         << " with tolerance " << sumav << std::endl;
+
+                    // auto te = chrono::high_resolution_clock::now();
+                    // auto duration = chrono::duration_cast<chrono::milliseconds>(te - ts);
+                    // std::cout << "Total time: " << duration.count() << " ms" << std::endl;
+                    converged = 1;
+                }
+            }
+            
+            // Broadcast convergence flag to ALL ranks
+            MPI_Bcast(&converged, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            
+            if (converged) {
+                // Optional: Broadcast the final tolerance value
+                MPI_Bcast(&sumav, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+                break;
+            }
+
+            // cout << "Hello3" << endl;
+
+            // --- HALO EXCHANGE ---
+            // Only if tol < sumav
+            double* send_top_halo1 = phi_local_data + (2 + 0) * STRIDE_I;              // Send from top row (row 2 of (r_l+4))
+            double* send_top_halo2 = phi_local_data + (2 + 1) * STRIDE_I;              // Send from top row (row 3 of (r_l+4))
+
+            double* send_bottom_halo1 = phi_local_data + (r_local) * STRIDE_I;             // Send from bottom row (row r_l of (r_l+4))
+            double* send_bottom_halo2 = phi_local_data + (r_local + 1) * STRIDE_I;         // Send from bottom row (row (r_l+1) of (r_l+4))
+
+            // Halo rows to receive from top
+            double* recv_bottom_halo1 = phi_local_data + 0 * STRIDE_I;                // Get from bottom row(next processor) (row 0 of (r_l+4))
+            double* recv_bottom_halo2 = phi_local_data + 1 * STRIDE_I;                // Get from bottom row(next processor) (row 1 of (r_l+4))
+
+            double* recv_top_halo1 = phi_local_data + (r_local + 2) * STRIDE_I;           // Get from top row(next processor) (row (rl+2) of (r_l+4))
+            double* recv_top_halo2 = phi_local_data + (r_local + 3) * STRIDE_I;           // Get from top row(next processor) (row (rl+3) of (r_l+4))
+
+            int prev_rank = (rank > 0) ? rank-1 : size-1;
+            int next_rank = (rank < size-1) ? rank+1 : 0;
+
+            // Set up non-blocking communications
+            MPI_Request requests[8];
+            MPI_Status statuses[8];
+            
+            MPI_Isend(send_top_halo1, n[1], MPI_DOUBLE, prev_rank, 0, MPI_COMM_WORLD, &requests[0]);
+            MPI_Irecv(recv_top_halo1, n[1], MPI_DOUBLE, next_rank, 0, MPI_COMM_WORLD, &requests[1]);
+
+            MPI_Isend(send_top_halo2, n[1], MPI_DOUBLE, prev_rank, 1, MPI_COMM_WORLD, &requests[2]);
+            MPI_Irecv(recv_top_halo2, n[1], MPI_DOUBLE, next_rank, 1, MPI_COMM_WORLD, &requests[3]);
+            
+            MPI_Isend(send_bottom_halo1, n[1], MPI_DOUBLE, next_rank, 2, MPI_COMM_WORLD, &requests[4]);
+            MPI_Irecv(recv_bottom_halo1, n[1], MPI_DOUBLE, prev_rank, 2, MPI_COMM_WORLD, &requests[5]);
+
+            MPI_Isend(send_bottom_halo2, n[1], MPI_DOUBLE, next_rank, 3, MPI_COMM_WORLD, &requests[6]);
+            MPI_Irecv(recv_bottom_halo2, n[1], MPI_DOUBLE, prev_rank, 3, MPI_COMM_WORLD, &requests[7]);
+            
+            // Wait for all communications to complete
+            MPI_Waitall(8, requests, statuses);
+        }
+
+        // Gather Phi from all processors to processor 0
+        double* send = phi_local_data + 2 * STRIDE_I;
+
+        // Stores index relative count allocated on each rank
+        blitz::Array<int, 1> recvcounts;
+        // Stores start position for each rank in the recv buffer
+        blitz::Array<int, 1> displs;
+
+        if (rank == 0) {
+            recvcounts.resize(size);
+            displs.resize(size);
+            int* recvcounts_ptr = recvcounts.data();
+            int* displs_ptr = displs.data();
+            
+            int offset = 0;
+            for (int p = 0; p < size; p++) {
+
+                int p_r_l = n0_local + (p < remainder ? 1 : 0);
+                
+                recvcounts_ptr[p] = p_r_l * n[1];
+                displs_ptr[p] = offset;
+                offset += recvcounts_ptr[p];
+            }
+        }
+
+        // Gather all data to rank 0
+        MPI_Gatherv(send,                           // Send from interior rows directly
+                    r_local * n[1],                       // Send count
+                    MPI_DOUBLE,                     // Send type
+                    phi_data,                       // Receive buffer (only valid on rank 0)
+                    recvcounts.data(),              // Receive counts array
+                    displs.data(),                  // Displacements array
+                    MPI_DOUBLE,                     // Receive type
+                    0,                              // Root rank
+                    MPI_COMM_WORLD);                // Communicator
+
+        // Handle periodic boundary on rank 0
+        // Copy first row to last row
+        if (rank == 0) {
+            double* last_row = phi_data + (n[0] - 1) * n[1];
+            double* first_row = phi_data;
+            
+            for (int j = 0; j < n[1]; j++) {
+                last_row[j] = first_row[j];
+            }
+        }
+
+        // Broadcast complete phi to all ranks
+        MPI_Bcast(phi_data,                // Buffer
+                    n[0] * n[1],                 // Count (all rows including periodic)
+                    MPI_DOUBLE,              // Type
+                    0,                       // Root
+                    MPI_COMM_WORLD);         // Communicator
     }
 };
 
-int main() {
+int main(int argc, char** argv) {
+
     auto start = std::chrono::high_resolution_clock::now();
     clock_t cpu_start = clock();
-    
+
+    //Initialize MPI
+    MPI_Init(&argc, &argv);
+
     Solver solver;
+
     solver.timeLoop();
+
+    // Finalize MPI
+    MPI_Finalize();
 
     clock_t cpu_end = clock();
     double cpu_time = double(cpu_end - cpu_start) / CLOCKS_PER_SEC;
     std::cout << "CPU Time: " << cpu_time << "s\n";
 
+    
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     // start = std::chrono::high_resolution_clock::now();

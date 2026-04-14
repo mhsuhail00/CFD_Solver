@@ -1,6 +1,13 @@
-// solver_3.cpp -> Parallize the work on available Hardware-Threads using OpenMP (Multicore parallelism on shared memory)
-// Auto Parallization using OpenMP
-// Arrays as Blitz Multi Dimentional Arrays (not pointers)
+// Hybrid Parallization using MPI(Distributed memory on several Nodes) & OpenMP(Shared Memory)
+//                n1
+//         -----------------
+//         |               |     Left & Right are Boundary
+//     n0  |    DOMAIN     |     Top & Bottom is Continious
+//         |               |
+//         -----------------
+// Domain is decomposed in n0: n0_local(rank) = n0/size + (1 if rank < n0 % size else 0)
+// After Domain decomposition using MPI over several Processors, 
+// OpenMP is employed on each local size { n0_local(rank) x n1 } to use all available cores/threads on that processor.
 
 #include <iostream>
 #include <fstream>
@@ -9,16 +16,20 @@
 #include <iomanip>
 #include <chrono>
 #include <ctime>
-#include <omp.h>
 #include <blitz/array.h>
+#include <omp.h>
+#include <mpi.h>
+
 using namespace std;
 int n[2];
 string INPUT_FILE = "INP.DAT";
 
 class Solver {
 public:
-    static constexpr int np1 = 350; //350
-    static constexpr int np2 = 570; //570
+    int rank, size;
+
+    static constexpr int np1 = 213; //350
+    static constexpr int np2 = 420; //570
     
     // ADD THESE - calculate strides once for contiguous access
     static constexpr int STRIDE_I = np2;              // 420
@@ -214,14 +225,14 @@ public:
     double t_period, icycles, tstart, t_incr, i_loop, loop_snap, vnn, dmax;
 
     Solver() {
-        // SET NUMBER OF THREADS TO MAX AVAILABLE
-        // int num_threads = omp_get_max_threads();
-        int num_threads = 20;
-        cout << "Num_threads:" << num_threads << endl;
-        omp_set_num_threads(num_threads);
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &size);  
 
         // dummy variables
         int ic1, ic2, ic3, ic4, irem;
+
+        // auto start = chrono::high_resolution_clock::now();
+
 
         // Read input file and initialize variables
         ifstream input_file(INPUT_FILE);
@@ -234,28 +245,11 @@ public:
         input_file >> p_grid >> a_grid >> ar;
         input_file >> ic1 >> ic2 >> ic3 >> ic4;
 
-        // Extract pointers ONCE at the beginning
         double* x_data = x.data();
-        double* dxix_data = dxix.data();
-        double* dxiy_data = dxiy.data();
-        double* dex_data = dex.data();
-        double* dey_data = dey.data();
-        double* alph_data = alph.data();
-        double* beta_data = beta.data();
-        double* gamma_data = gamma.data();
-        double* ajac_data = ajac.data();
-        double* xnix_data = xnix.data();
-        double* xniy_data = xniy.data();
-        double* xnox_data = xnox.data();
-        double* xnoy_data = xnoy.data();
-        double* p1_data = p1.data();
-        double* q1_data = q1.data();
-
-        // File reading - SERIAL (cannot be parallelized)
         for (int j = 0; j < n[1]; j++) {
             int x0_base = j;
             int x1_base = STRIDE_K + j;
-            
+
             for (int i = 0; i < n[0]; i++) {
                 input_file >> aaa >> bbb >> x_data[x0_base] >> x_data[x1_base];
                 x0_base += STRIDE_I;
@@ -263,13 +257,21 @@ public:
             }
         }
 
+        double* dxix_data = dxix.data();
+        double* dxiy_data = dxiy.data();
+        double* dex_data = dex.data();
+        double* dey_data = dey.data();
+
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;
+            int idx = j;  // Start at column j, row 0
             for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
                 input_file >> dxix_data[idx] >> dxiy_data[idx] >> dex_data[idx] >> dey_data[idx];
             }
         }
 
+        double* alph_data = alph.data();
+        double* beta_data = beta.data();
+        double* gamma_data = gamma.data();
         for (int j = 0; j < n[1]; j++) {
             int idx = j;
             for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
@@ -278,15 +280,21 @@ public:
         }
 
         for (int j = 0; j < n[1]; j++) {
-            int idx = j;
-            for (int i = 0; i < n[0]; i++, idx += STRIDE_I) {
-                input_file >> ajac_data[idx];
+            for (int i = 0; i < n[0]; i++) {
+                input_file >> ajac(i,j);
             }
         }
 
+        double* xnix_data = xnix.data();
+        double* xniy_data = xniy.data();
+        double* xnox_data = xnox.data();
+        double* xnoy_data = xnoy.data();
         for (int i = 0; i < n[0]; i++) {
             input_file >> xnix_data[i] >> xniy_data[i] >> xnox_data[i] >> xnoy_data[i];
         }
+
+        double* p1_data = p1.data();
+        double* q1_data = q1.data();
 
         #pragma omp parallel for collapse(2)
         for (int j = 0; j < n[1]; j++) {
@@ -297,21 +305,9 @@ public:
             }
         }
 
-        // Dead code
-        irem = 0;
-        n[1] = n[1] - irem;
-        if (irem != 0) {
-            int row_base = (n[1]-1) * STRIDE_I;
-            #pragma omp parallel for
-            for (int i = 0; i < n[0]; i++) {
-                int idx = row_base + i;
-                xnox_data[i] = -dex_data[idx] / sqrt(gamma_data[idx]);
-                xnoy_data[i] = -dey_data[idx] / sqrt(gamma_data[idx]);
-            }
-        }
-
         // Generating filenames - SERIAL (fast enough, no need to parallelize)
         int i3, i2, i1;
+        #pragma omp parallel for
         for (int i = 0; i < maxsnap; i++) {
             filnam[i] = "SNAP000.DAT";
             int i3 = i / 100;
@@ -325,19 +321,19 @@ public:
         // --------------------------------------------------------
         // CALCULATING NXi AND Net AT OUTER AND INNER POINTS
         // --------------------------------------------------------
+        // at inner first
         double* xnixi_data = xnixi.data();
         double* xniet_data = xniet.data();
-        double* xnoxi_data = xnoxi.data();
-        double* xnoet_data = xnoet.data();
-
         int j = 0;
         #pragma omp parallel for simd
         for (int i = 0; i < n[0]; i++) {
-            int idx = i * STRIDE_I + j;
+            int idx = i * STRIDE_I + j;  // Calculate once
             xnixi_data[i] = dxix_data[idx] * xnix_data[i] + dxiy_data[idx] * xniy_data[i];
             xniet_data[i] = dex_data[idx] * xnix_data[i] + dey_data[idx] * xniy_data[i];
         }
-        
+
+        double* xnoxi_data = xnoxi.data();
+        double* xnoet_data = xnoet.data();
         j = n[1]-1;
         #pragma omp parallel for simd
         for (int i = 0; i < n[0]; i++) {
@@ -353,14 +349,12 @@ public:
             int x1_base = STRIDE_K + j;
             
             for (int i = 0; i < n[0]; i++) {
-                bound_file << i << " " << j << " " << x_data[x0_base] << " " 
-                        << x_data[x1_base] << " 1" << endl;
+                bound_file << i << " " << j << " " << x_data[x0_base] << " " << x_data[x1_base] << " 1" << endl;
                 x0_base += STRIDE_I;
                 x1_base += STRIDE_I;
             }
             bound_file << endl;
         }
-        bound_file.close();
 
         //-----------------------------------------------------
         // Applying Initial conditions
@@ -398,21 +392,24 @@ public:
                 }
             }
         } else {
-            // Binary read - SERIAL (I/O)
             ifstream restart_file("spa100.dat", ios::binary);
             if (!restart_file) {
                 cerr << "Error opening restart file" << endl;
                 return;
             }
-            
+
+            double* x_data = x.data();
+            double* si_data = si.data();
+            double* u_data = u.data();
+            double* p_data = p.data();
+     
             restart_file.read(reinterpret_cast<char*>(&loop), sizeof(loop));
             restart_file.read(reinterpret_cast<char*>(&time), sizeof(time));
             restart_file.read(reinterpret_cast<char*>(&dmax), sizeof(dmax));
-            restart_file.read(reinterpret_cast<char*>(x.data()), 2 * np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(si.data()), np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(u.data()), 3 * np1 * np2 * sizeof(double));
-            restart_file.read(reinterpret_cast<char*>(p.data()), np1 * np2 * sizeof(double));
-            restart_file.close();
+            restart_file.read(reinterpret_cast<char*>(x_data), 2 * np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(si_data), np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(u_data), 3 * np1 * np2 * sizeof(double));
+            restart_file.read(reinterpret_cast<char*>(p_data), np1 * np2 * sizeof(double));
         }
 
         iiflag = 0;
@@ -434,12 +431,10 @@ public:
         //c       APPLYING BOUNDARY CONDITION
         //c---------setting boundary conditions----------------
         //c---------solid-fluid boundary
-
-        // Extract ALL pointers at once (do this ONCE per function/scope)
         double* u_data = u.data();
         double* up_data = up.data();
 
-        // Extract coefficient matrix pointers
+        
         double* aue_data = aue.data();
         double* auw_data = auw.data();
         double* aun_data = aun.data();
@@ -466,7 +461,7 @@ public:
         double* aunww_data = aunww.data();
         double* ausee_data = ausee.data();
         double* ausww_data = ausww.data();
-
+        
         double* ate_data = ate.data();
         double* atw_data = atw.data();
         double* atn_data = atn.data();
@@ -476,7 +471,7 @@ public:
         double* atsw_data = atsw.data();
         double* atnw_data = atnw.data();
         double* atp_data = atp.data();
-
+        
         double* atnn_data = atnn.data();
         double* atss_data = atss.data();
         double* atee_data = atee.data();
@@ -493,7 +488,7 @@ public:
         double* atnww_data = atnww.data();
         double* atsee_data = atsee.data();
         double* atsww_data = atsww.data();
-
+        
         double* bus_data = bus.data();
         double* buse_data = buse.data();
         double* busw_data = busw.data();
@@ -506,7 +501,7 @@ public:
         double* btn_data = btn.data();
         double* btne_data = btne.data();
         double* btnw_data = btnw.data();
-
+        
         double* ae_data = ae.data();
         double* aw_data = aw.data();
         double* an_data = an.data();
@@ -516,22 +511,20 @@ public:
         double* asw_data = asw.data();
         double* anw_data = anw.data();
         double* ap_data = ap.data();
-
+        
         //PARALLEL REGION
         #pragma omp parallel 
         {
             // ----------------------------------------------------
             // Solid-fluid boundary (j=0)
             // ----------------------------------------------------
-            int j = 0;
-            
-            // Process k=0 and k=1 layers
+            j = 0;
             for(int k=0; k<2; k++){
                 #pragma omp for nowait
-                for(int i = 0; i < n[0]; i++) {
+                for(int i=0; i<n[0]; i++){
                     int uk_base = k * STRIDE_K + i * STRIDE_I + j;
-                    
-                    if(k == 0) {
+
+                    if(k == 0){
                         u_data[uk_base] = -speed_amp * x_data[STRIDE_K + uk_base];  // x[1][i][j]
                     } else {
                         u_data[uk_base] = speed_amp * x_data[uk_base - STRIDE_K];   // x[0][i][j]
@@ -548,7 +541,7 @@ public:
             }
 
             // ----------------------------------------------------
-            // Setting BC at infinity (j = n[1]-1)
+            // setting bc at infinity
             // ----------------------------------------------------
             j = n[1]-1;
             int jnn = j-1;
@@ -562,26 +555,25 @@ public:
                 int u0_base_jnn = i * STRIDE_I + jnn;
                 int u1_base_jnn = STRIDE_K + i * STRIDE_I + jnn;
                 int u2_base_jnn = 2*STRIDE_K + i * STRIDE_I + jnn;
+
+                vnn = u_data[u0_base]*xnox_data[i] + u_data[u1_base]*xnoy_data[i];
                 
-                // Calculate normal velocity
-                double vnn = u_data[u0_base]*xnox_data[i] + u_data[u1_base]*xnoy_data[i];
-                
-                if(vnn >= 0) {
-                    // Inflow: Dirichlet conditions
+                if(vnn >= 0){
+                    // inflow dirichlet conditions
                     u_data[u0_base] = uinf;
                     u_data[u1_base] = vinf;
                     u_data[u2_base] = 0.0;
                     up_data[u0_base] = uinf;
                     up_data[u1_base] = vinf;
                 }
-                else {
-                    // Outflow: Neumann condition
+                else{
+                    // Neuman condition
                     u_data[u0_base] = u_data[u0_base_jnn];
                     u_data[u1_base] = u_data[u1_base_jnn];
                     u_data[u2_base] = u_data[u2_base_jnn];
                 }
             }
-            
+
             // Handle periodic boundary - SINGLE thread only (avoid race condition)
             #pragma omp single
             {
@@ -599,14 +591,13 @@ public:
             // Forming coefficient matrix for velocity
             // ----------------------------------------------------
             #pragma omp for schedule(static) nowait
-            for(int i = 0; i < n[0]-1; i++) {
+            for(int i=0; i<n[0]-1; i++){
                 int row_base = i * STRIDE_I + 1;  // Start at j=1
                 int row_last = (n[0]-1) * STRIDE_I + 1;  // For periodic BC copy
                 
-                // Inner j loop remains sequential (within each thread)
-                for(int j = 1; j < n[1]-1; j++, row_base++, row_last++) {
+                for(int j=1; j<n[1]-1; j++, row_base++, row_last++){
                     
-                    if(j == 1 || j == n[1]-2) {
+                    if(j==1 || j==n[1]-2){
                         // Second order scheme
                         aue_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))+p1_data[row_base]/(2.0*dxi(0)))/Re;
                         auw_data[row_base] = -dt*(alph_data[row_base]/(dxi(0)*dxi(0))-p1_data[row_base]/(2.0*dxi(0)))/Re;
@@ -631,7 +622,7 @@ public:
                         atse_data[row_base] = atnw_data[row_base];
                         atp_data[row_base] = 1+dt*2.0*(alph_data[row_base]/(dxi(0)*dxi(0))+gamma_data[row_base]/(dxi(1)*dxi(1)))/(Re*Pr);
                     }
-                    else {
+                    else{
                         // Fourth order scheme
                         aue_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))+(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
                         auw_data[row_base]=(-dt)*((4.0*alph_data[row_base])/(3.0*dxi(0)*dxi(0))-(2.0*p1_data[row_base])/(3.0*dxi(0)))/Re;
@@ -694,7 +685,7 @@ public:
                     }
 
                     // Boundary coefficient storage
-                    if(j == 1) {
+                    if(j==1){
                         bus_data[i]=aus_data[row_base];
                         buse_data[i]=ause_data[row_base];
                         busw_data[i]=ausw_data[row_base];
@@ -710,7 +701,7 @@ public:
                         atsw_data[row_base]=0;
                     }
                     
-                    if(j == n[1]-2) {
+                    if(j==n[1]-2){
                         bun_data[i]=aun_data[row_base];
                         bune_data[i]=aune_data[row_base];
                         bunw_data[i]=aunw_data[row_base];
@@ -727,7 +718,7 @@ public:
                     }
 
                     // Periodic BC - copy to last row
-                    if(i == 0) {
+                    if(i==0){
                         aue_data[row_last]=aue_data[row_base];
                         auw_data[row_last]=auw_data[row_base];
                         aun_data[row_last]=aun_data[row_base];
@@ -784,12 +775,12 @@ public:
                     }
                 }
             }
-
+    
             // ----------------------------------------------------
             // Forming pressure matrix
             // ----------------------------------------------------
             #pragma omp for schedule(static) nowait
-            for(int i = 0; i < n[0]-1; i++) {
+            for(int i=0; i<n[0]-1; i++) {
                 int row_base = i * STRIDE_I + 1;  // Start at j=1
                 
                 // Neighbor rows
@@ -799,9 +790,8 @@ public:
                 int row_ipp = ipp * STRIDE_I + 1;
                 int row_last = (n[0]-1) * STRIDE_I + 1;
                 
-                // Inner j loop remains sequential within each thread
-                for(int j = 1; j < n[1]-1; j++) {
-                    // Load grid metrics for current point and neighbors
+                for(int j=1; j<n[1]-1; j++) {
+                    // All indices are just increments - no multiplication!
                     double dxix_ij = dxix_data[row_base];
                     double dxiy_ij = dxiy_data[row_base];
                     double dex_ij = dex_data[row_base];
@@ -812,17 +802,17 @@ public:
                     double dxix_w = dxix_data[row_inn];
                     double dxix_n = dxix_data[row_base + 1];
                     double dxix_s = dxix_data[row_base - 1];
-                    
+
                     double dxiy_e = dxiy_data[row_ipp];
                     double dxiy_w = dxiy_data[row_inn];
                     double dxiy_n = dxiy_data[row_base + 1];
                     double dxiy_s = dxiy_data[row_base - 1];
-                    
+
                     double dex_e = dex_data[row_ipp];
                     double dex_w = dex_data[row_inn];
                     double dex_n = dex_data[row_base + 1];
                     double dex_s = dex_data[row_base - 1];
-                    
+
                     double dey_e = dey_data[row_ipp];
                     double dey_w = dey_data[row_inn];
                     double dey_n = dey_data[row_base + 1];
@@ -906,7 +896,6 @@ public:
             }
         } // ← END OF PARALLEL REGION
 
-
         // auto end = chrono::high_resolution_clock::now();
         // auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
         // cout << "Time taken in Constructor: " << duration.count() << " ms" << endl;
@@ -918,9 +907,9 @@ public:
         //----------------------------------------------------------
         //START OF TIME LOOP
         //----------------------------------------------------------
-        
-        auto start = chrono::high_resolution_clock::now();
 
+        // auto start = chrono::high_resolution_clock::now();
+        
         // Extract ALL pointers ONCE (before time loop)
         double* u_data = u.data();
         double* up_data = up.data();
@@ -969,9 +958,9 @@ public:
         double* vort_data = vort.data();
 
         // Outer time loop
-        for(loop=0; loop<MAXSTEP; loop++){
+        for(loop=0;loop<MAXSTEP;loop++){
             time = time + dt;
-            
+
             // ========================================
             // Flow Field inside domain
             // U in xi and eta
@@ -983,10 +972,11 @@ public:
                     int u0_base = idx_base;
                     int u1_base = idx_base + STRIDE_K;
                     int u2_base = idx_base + 2*STRIDE_K;
-                    
+
                     uxi_data[idx_base] = dxix_data[idx_base]*u_data[u0_base] + dxiy_data[idx_base]*u_data[u1_base];
                     uet_data[idx_base] = dex_data[idx_base]*u_data[u0_base] + dey_data[idx_base]*u_data[u1_base];
                     uold_data[u2_base] = u_data[u2_base];
+                    
                 }
             }
 
@@ -998,7 +988,6 @@ public:
                 //Each thread gets its own stack copy (thread-private)
                 double conv[3];
                 double dp_dxi, dp_de, dp_dx, dp_dy;
-                
                 // Pre-calculate ALL row bases for this i
                 int row_base = i * STRIDE_I + 1;  // Start at j=1
                 
@@ -1089,6 +1078,7 @@ public:
                             pec2 = uet_ij*Re*Pr*dxi_data[1]/gamma_ij;
                         }
                         
+                        // ===== XI DIRECTION DERIVATIVE =====
                         double du_xi;
                         if(j >= 2 && j <= n[1]-3) {
                             if(pec1 <= 2 && pec1 > -2) {
@@ -1111,6 +1101,7 @@ public:
                             du_xi = (1.0/12.0)*(xpp-xnn)/dxi_data[0];
                         }
 
+                        // ===== ETA DIRECTION DERIVATIVE =====
                         double du_et;
                         if (j >= 2 && j <= n[1]-3) {
                             if (pec2 <= 2 && pec2 > -2) {
@@ -1305,7 +1296,7 @@ public:
                 }
             }
 
-            // ========================================
+            /// ========================================
             // SOLVING TEMPERATURE
             // ========================================
             #pragma omp parallel for collapse(2) schedule(static)
@@ -1589,6 +1580,7 @@ public:
                     }
                 }
             }
+
             // ========================================
             // UPDATING U AND V FROM PCOR
             // ========================================
@@ -1755,18 +1747,17 @@ public:
                 }
             }
 
-            // Outflow boundary
+            j = n[1] - 1;
+            int u0_base = j;
+            int u1_base = j + STRIDE_K;
+            int u2_base = j + 2*STRIDE_K;
+            int uold2_base = u2_base;
+            int uold2_jm1 = j - 1 + 2*STRIDE_K;
+            int x0_base = j;
+            int x1_base = j + STRIDE_K;
+            int uet_base = j;
+
             for(int i = 0; i < n[0] - 1; i++) {
-                int j = n[1] - 1;
-                int u0_base = i * STRIDE_I + j;
-                int u1_base = u0_base + STRIDE_K;
-                int u2_base = u0_base + 2*STRIDE_K;
-                int uold2_base = u2_base;
-                int uold2_jm1 = u2_base - 1;
-                int x0_base = u0_base;
-                int x1_base = u1_base;
-                int uet_base = u0_base;
-                
                 vnn = uinf * xnox_data[i] + vinf * xnoy_data[i];
                 
                 if(vnn >= 0) {
@@ -1792,6 +1783,15 @@ public:
                     u_data[last_idx + STRIDE_K] = u_data[u1_base];
                     u_data[last_idx + 2*STRIDE_K] = u_data[u2_base];
                 }
+                
+                u0_base += STRIDE_I;
+                u1_base += STRIDE_I;
+                u2_base += STRIDE_I;
+                uold2_base += STRIDE_I;
+                uold2_jm1 += STRIDE_I;
+                x0_base += STRIDE_I;
+                x1_base += STRIDE_I;
+                uet_base += STRIDE_I;
             }
 
             // ========================================
@@ -1969,6 +1969,7 @@ public:
                 }
             }
 
+
             // ========================================
             // DILATION AND VORTICITY
             // ========================================
@@ -2054,7 +2055,9 @@ public:
                 }
             }
 
-            cout << loop << " " << dmax << endl;
+            if(rank == 0) {
+                cout << loop << " " << dmax << endl;
+            }
 
             // ========================================
             // LIFT, DRAG, MOMENT, NUSSELT NUMBER
@@ -2144,7 +2147,7 @@ public:
             // ========================================
             // FILE WRITING (SERIAL - I/O BOTTLENECK)
             // ========================================
-            if (loop % 500 == 0) {
+            if ((rank == 0) && (loop % 500 == 0)) {
                 ofstream file1("spt100.dat");
                 file1 << "zone" << endl;
                 file1 << "I=" << n[0] << endl;
@@ -2196,7 +2199,9 @@ public:
                     << CL_vor << " " << CD_vor << endl;
                 file4.close();
 
-                // Local Nusselt number profile
+                // ================================================================
+                // local nusselt number profile on cylinder
+                // ================================================================
                 ofstream file5("SURF_DIST.dat");
                 int u2_base_0 = 2 * STRIDE_K;
                 int u2_base_1 = 2 * STRIDE_K + 1;
@@ -2248,11 +2253,313 @@ public:
                     loop_snap = loop_snap + i_loop;
                 }
             }
-            auto end = chrono::high_resolution_clock::now();
-            auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
-            cout << "Time taken in Time Loop " << loop << ": " << duration.count() << " ms" << endl;
-         } // ← END OF TIME LOOP
+        
+            // if (rank == 0) {
+            //     auto end = chrono::high_resolution_clock::now();
+            //     auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);
+            //     cout << "Time taken in Time Loop: " << duration.count() << " ms" << endl;
+            // }
+        } // ← END OF TIME LOOP
     } // ← END OF timeLoop() FUNCTION
+
+    void sip9p(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, 
+            blitz::Array<double, 2>& as, blitz::Array<double, 2>& an, 
+            blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
+            blitz::Array<double, 2>& asw, blitz::Array<double, 2>& ane, 
+            blitz::Array<double, 2>& anw, blitz::Array<double, 2>& phi, 
+            blitz::Array<double, 2>& q){
+        
+        // Get data pointers for contiguous access
+        double* ap_data = ap.data();
+        double* ae_data = ae.data();
+        double* as_data = as.data();
+        double* an_data = an.data();
+        double* aw_data = aw.data();
+        double* ase_data = ase.data();
+        double* asw_data = asw.data();
+        double* ane_data = ane.data(); 
+        double* anw_data = anw.data();
+        double* phi_data = phi.data();
+        double* q_data = q.data();
+
+        double tol = 0.75e-2;
+        int maxiter = 100000;
+        double alp = 0.92;
+        double sumnor = 0.0;
+
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &size);  
+        
+        // ===== MPI DOMAIN DECOMPOSITION =====
+        const int n0_local = (n[0]-1)/size;
+        int remainder = (n[0]-1)%size;
+        int r_global = rank * n0_local + min(rank, remainder);
+        int r_local = n0_local + (rank < remainder ? 1 : 0);
+
+        // ===== LOCAL ARRAYS (per MPI process, shared by OpenMP threads) =====
+        blitz::Array<double, 2> phi_local(r_local + 2, n[1]);
+        blitz::Array<double, 2> qp_local(r_local + 2, n[1]);
+        blitz::Array<double, 2> del_local(r_local + 2, n[1]); 
+
+        // Use class member arrays - get their data pointers
+        double* be = sip_be.data();
+        double* bw = sip_bw.data();
+        double* bs = sip_bs.data();
+        double* bn = sip_bn.data();
+        double* bse = sip_bse.data();
+        double* bne = sip_bne.data();
+        double* bnw = sip_bnw.data();
+        double* bsw = sip_bsw.data();
+        double* bp = sip_bp.data();
+        
+        double* qp_data = qp_local.data();
+        double* del_data = del_local.data();
+        double* phi_local_data = phi_local.data();
+
+        // ===== PARALLEL INITIALIZATION (OpenMP) =====
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < np1 * np2; i++) {
+            be[i] = 0.0;
+            bw[i] = 0.0;
+            bs[i] = 0.0;
+            bn[i] = 0.0;
+            bse[i] = 0.0;
+            bne[i] = 0.0;
+            bnw[i] = 0.0;
+            bsw[i] = 0.0;
+            bp[i] = 0.0;
+        }
+        
+        qp_local = 0.0;
+        del_local = 0.0;
+
+        // ===== POPULATE PHI_LOCAL (OpenMP parallel) =====
+        #pragma omp parallel for schedule(static)
+        for(int i_local = 0; i_local < r_local + 2; i_local++) {
+            int i_global = r_global - 1 + i_local;
+            
+            // Handle periodic boundary
+            if(i_global < 0) {
+                i_global = n[0] - 1;
+            } else if(i_global >= n[0] - 1) {
+                i_global = 0;
+            }
+            
+            int rb_global = i_global * STRIDE_I;
+            int rb_local = i_local * STRIDE_I;
+            
+            for(int j = 0; j < n[1]; j++) {
+                phi_local_data[rb_local] = phi_data[rb_global];
+                rb_global++; 
+                rb_local++;
+            }
+        }
+        
+        // ===== FORWARD ELIMINATION (SERIAL - complex dependencies) =====
+        // This cannot be parallelized due to j-direction dependencies
+        for (int i = 0; i < n[0]-1; i++) {
+            int row_base = i * STRIDE_I + 1;
+            
+            int inn = (i == 0) ? n[0]-2 : i-1;
+            int row_inn = inn * STRIDE_I + 1;
+            int row_last = (n[0]-1) * STRIDE_I + 1;
+            
+            for (int j = 1; j < n[1]-1; j++) {
+                bsw[row_base] = asw_data[row_base];
+                
+                double alp_bn_inn = alp * bn[row_inn];
+                double alp_be_prev = alp * be[row_base - 1];
+                
+                bw[row_base] = (aw_data[row_base] + alp*anw_data[row_base] - bsw[row_base]*bn[row_inn - 1]) / 
+                        (1.0 + alp_bn_inn);
+                
+                bs[row_base] = (as_data[row_base] + alp*ase_data[row_base] - bsw[row_base]*be[row_inn - 1]) / 
+                        (1.0 + alp_be_prev);
+                
+                double ad = anw_data[row_base] + ase_data[row_base] - bs[row_base]*be[row_base - 1] - bw[row_base]*bn[row_inn];
+                
+                bp[row_base] = ap_data[row_base] - alp*ad - bs[row_base]*bn[row_base - 1] - bw[row_base]*be[row_inn] - 
+                        bsw[row_base]*bne[row_inn - 1];
+                
+                double inv_bp = 1.0 / bp[row_base];
+                
+                bn[row_base] = (an_data[row_base] + alp*anw_data[row_base] - alp_bn_inn*bw[row_base] - 
+                        bw[row_base]*bne[row_inn]) * inv_bp;
+                
+                be[row_base] = (ae_data[row_base] + alp*ase_data[row_base] - alp_be_prev*bs[row_base] - 
+                        bs[row_base]*bne[row_base - 1]) * inv_bp;
+                
+                bne[row_base] = ane_data[row_base] * inv_bp;
+                
+                if (i == 0) {
+                    bsw[row_last] = bsw[row_base];
+                    bn[row_last] = bn[row_base];
+                    bs[row_last] = bs[row_base];
+                    bne[row_last] = bne[row_base];
+                    be[row_last] = be[row_base];
+                    bw[row_last] = bw[row_base];
+                    bp[row_last] = bp[row_base];
+                }
+                
+                row_base++;
+                row_inn++;
+                row_last++;
+            }
+        }
+
+        // ===== SETUP FOR MPI COMMUNICATION =====
+        MPI_Request requests[4];
+        int req_count = 0;
+        
+        // ===== MAIN ITERATION LOOP =====
+        for (int iter = 0; iter < maxiter; iter++) {
+            
+            // ===== STEP 1: HALO EXCHANGE (Master thread only, skip iter=0) =====
+            if (iter > 0) {
+                req_count = 0;
+                
+                // Periodic boundary communication
+                if (rank == 0) {
+                    MPI_Isend(phi_local_data + 1*STRIDE_I, n[1], MPI_DOUBLE, size-1, 75, MPI_COMM_WORLD, &requests[req_count++]);
+                    MPI_Irecv(phi_local_data + 0*STRIDE_I, n[1], MPI_DOUBLE, size-1, 90, MPI_COMM_WORLD, &requests[req_count++]);
+                } else if (rank == size-1) {
+                    MPI_Isend(phi_local_data + r_local*STRIDE_I, n[1], MPI_DOUBLE, 0, 90, MPI_COMM_WORLD, &requests[req_count++]);
+                    MPI_Irecv(phi_local_data + (r_local+1)*STRIDE_I, n[1], MPI_DOUBLE, 0, 75, MPI_COMM_WORLD, &requests[req_count++]);
+                }
+                
+                // Regular halo exchange
+                if (rank > 0) {
+                    MPI_Irecv(phi_local_data + 0*STRIDE_I, n[1], MPI_DOUBLE, rank-1, 303, MPI_COMM_WORLD, &requests[req_count++]);
+                }
+                if (rank < size-1) {
+                    MPI_Isend(phi_local_data + r_local*STRIDE_I, n[1], MPI_DOUBLE, rank+1, 303, MPI_COMM_WORLD, &requests[req_count++]);
+                }
+                
+                MPI_Waitall(req_count, requests, MPI_STATUSES_IGNORE);
+            }
+
+            // ===== STEP 2: FORWARD SWEEP (OpenMP parallel over i) =====
+            double ssum = 0.0;
+            
+            #pragma omp parallel reduction(+:ssum)
+            {
+                #pragma omp for schedule(dynamic) nowait
+                for (int i_local = 1; i_local < r_local + 1; i_local++) {
+                    int i_global = r_global + i_local - 1;
+                    int rb_global = i_global * STRIDE_I + 1;
+                    int rb_local = i_local * STRIDE_I + 1;
+                    
+                    int rlocal_inn = (i_local - 1) * STRIDE_I + 1;
+                    int rlocal_ipp = (i_local + 1) * STRIDE_I + 1;
+                    
+                    // j loop MUST remain serial (dependency in qp)
+                    for (int j = 1; j < n[1]-1; j++) {
+                        double res = q_data[rb_global] - ap_data[rb_global]*phi_local_data[rb_local] - 
+                                    ae_data[rb_global]*phi_local_data[rlocal_ipp] - 
+                                    an_data[rb_global]*phi_local_data[rb_local + 1] - 
+                                    as_data[rb_global]*phi_local_data[rb_local - 1] - 
+                                    aw_data[rb_global]*phi_local_data[rlocal_inn] - 
+                                    anw_data[rb_global]*phi_local_data[rlocal_inn + 1] - 
+                                    ane_data[rb_global]*phi_local_data[rlocal_ipp + 1] - 
+                                    asw_data[rb_global]*phi_local_data[rlocal_inn - 1] - 
+                                    ase_data[rb_global]*phi_local_data[rlocal_ipp - 1];
+                        
+                        ssum += fabs(res);
+                        
+                        qp_data[rb_local] = (res - bs[rb_global]*qp_data[rb_local - 1] - 
+                                            bw[rb_global]*qp_data[rlocal_inn] - 
+                                            bsw[rb_global]*qp_data[rlocal_inn - 1]) / bp[rb_global];
+
+                        rb_global++;
+                        rb_local++;
+                        rlocal_inn++;
+                        rlocal_ipp++;
+                    }
+                }
+            } // End parallel region
+
+            // if (rank == 0) {
+            //         cout << "forward working" << endl;
+            //     }
+
+            // ===== STEP 3: MPI CONVERGENCE CHECK =====
+            double global_ssum = 0.0;
+            MPI_Allreduce(&ssum, &global_ssum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
+            if (iter == 0) {
+                sumnor = (global_ssum != 0.0) ? global_ssum : 1.0;
+            }
+
+            double sumav = global_ssum / sumnor;
+
+            if (sumav < tol) {
+                break;
+            }
+
+            // ===== STEP 4: BACKWARD SWEEP (OpenMP parallel over i) =====
+            #pragma omp parallel for schedule(dynamic)
+            for (int i_local = r_local; i_local >= 1; i_local--) {
+                int i_global = r_global + i_local - 1;
+                int rb_global = i_global * STRIDE_I + (n[1] - 2);
+                int rb_local = i_local * STRIDE_I + (n[1] - 2);
+                int rlocal_ipp = (i_local + 1) * STRIDE_I + (n[1] - 2);
+                
+                // j loop MUST remain serial (dependency in del)
+                for (int j = n[1]-2; j >= 1; j--) {
+                    del_data[rb_local] = qp_data[rb_local] - bn[rb_global]*del_data[rb_local + 1] - 
+                                        be[rb_global]*del_data[rlocal_ipp] - 
+                                        bne[rb_global]*del_data[rlocal_ipp + 1];
+                    
+                    phi_local_data[rb_local] += del_data[rb_local];
+                    
+                    rb_global--;
+                    rb_local--;
+                    rlocal_ipp--;
+                }
+            }
+            // if (rank == 0) {
+            //         cout << "backward working" << endl;
+            //     }
+        }
+
+        // ===== GATHER RESULTS (Master thread only) =====
+        double* send = phi_local_data + 1 * STRIDE_I;
+
+        blitz::Array<int, 1> recvcounts;
+        blitz::Array<int, 1> displs;
+
+        if (rank == 0) {
+            recvcounts.resize(size);
+            displs.resize(size);
+            int* recvcounts_ptr = recvcounts.data();
+            int* displs_ptr = displs.data();
+            
+            int offset = 0;
+            for (int p = 0; p < size; p++) {
+                int p_r_l = n0_local + (p < remainder ? 1 : 0);
+                recvcounts_ptr[p] = p_r_l * n[1];
+                displs_ptr[p] = offset;
+                offset += recvcounts_ptr[p];
+            }
+        }
+
+        MPI_Gatherv(send, r_local * n[1], MPI_DOUBLE, phi_data, 
+                    recvcounts.data(), displs.data(), MPI_DOUBLE, 
+                    0, MPI_COMM_WORLD);
+
+        // Handle periodic boundary on rank 0
+        if (rank == 0) {
+            double* phi_last_row = phi_data + (n[0] - 1) * n[1];
+            double* phi_first_row = phi_data;
+            
+            for (int j = 0; j < n[1]; j++) {
+                phi_last_row[j] = phi_first_row[j];
+            }
+        }
+
+        // Broadcast complete phi to all ranks
+        MPI_Bcast(phi_data, n[0] * n[1], MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    }
 
     void gauss(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, blitz::Array<double, 2>& as, 
             blitz::Array<double, 2>& an, blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
@@ -2264,7 +2571,7 @@ public:
             blitz::Array<double, 2>& anee, blitz::Array<double, 2>& anww, blitz::Array<double, 2>& aee, 
             blitz::Array<double, 2>& aww, blitz::Array<double, 2>& phi, blitz::Array<double, 2>& q) {
         
-        //Extract ALL pointers ONCE
+        // Get data pointers for contiguous access
         double* ap_data = ap.data();
         double* ae_data = ae.data();
         double* as_data = as.data();
@@ -2296,317 +2603,255 @@ public:
         double tol = 0.75e-2;
         int maxiter = 100000;
         double sumnor = 0.0;
+
+        //Domain Decomposition (MPI level)
+        const int n0_local = (n[0]-1)/size;
+        int remainder = (n[0]-1)%size;
+        int r_index = rank * n0_local + min(rank, remainder);
+        int r_local = n0_local + (rank < remainder ? 1 : 0);
+
+        // Local variables (per MPI process, shared by OpenMP threads)
+        blitz::Array<double, 2> phi_local{r_local + 4, n[1]};
+        double* phi_local_data = phi_local.data();
         
+        // ===== INITIALIZATION (OpenMP parallelized) =====
+        #pragma omp parallel for schedule(static)
+        for(int i_local = 0; i_local < r_local + 4; i_local++) {
+            int i_global = r_index - 2 + i_local;
+            i_global = i_global % (n[0] - 1);
+
+            if(i_global == -1) i_global = n[0] - 2;
+            else if(i_global == -2) i_global = n[0] - 3;
+            
+            int rb_global = i_global * STRIDE_I;
+            int rb_local = i_local * STRIDE_I;
+            
+            for(int j = 0; j < n[1]; j++) {
+                phi_local_data[rb_local] = phi_data[rb_global];
+                rb_global++;
+                rb_local++;
+            }
+        }
+
+        // ===== HALO POINTERS (defined once, outside loop) =====
+        double* send_top_halo1 = phi_local_data + 2 * STRIDE_I;
+        double* send_top_halo2 = phi_local_data + 3 * STRIDE_I;
+        double* send_bottom_halo1 = phi_local_data + r_local * STRIDE_I;
+        double* send_bottom_halo2 = phi_local_data + (r_local + 1) * STRIDE_I;
+        double* recv_bottom_halo1 = phi_local_data + 0 * STRIDE_I;
+        double* recv_bottom_halo2 = phi_local_data + 1 * STRIDE_I;
+        double* recv_top_halo1 = phi_local_data + (r_local + 2) * STRIDE_I;
+        double* recv_top_halo2 = phi_local_data + (r_local + 3) * STRIDE_I;
+
+        int prev_rank = (rank > 0) ? rank-1 : size-1;
+        int next_rank = (rank < size-1) ? rank+1 : 0;
+
+        MPI_Request requests[8];
+
+        // ===== MAIN ITERATION LOOP =====
         for (int iter = 0; iter < maxiter; iter++) {
+            
+            // ===== STEP 1: HALO EXCHANGE (Master thread only, skip iter=0) =====
+            if (iter > 0) {
+                // NO OpenMP here - only master thread calls MPI
+                MPI_Isend(send_top_halo1, n[1], MPI_DOUBLE, prev_rank, 0, MPI_COMM_WORLD, &requests[0]);
+                MPI_Irecv(recv_top_halo1, n[1], MPI_DOUBLE, next_rank, 0, MPI_COMM_WORLD, &requests[1]);
+                MPI_Isend(send_top_halo2, n[1], MPI_DOUBLE, prev_rank, 1, MPI_COMM_WORLD, &requests[2]);
+                MPI_Irecv(recv_top_halo2, n[1], MPI_DOUBLE, next_rank, 1, MPI_COMM_WORLD, &requests[3]);
+                MPI_Isend(send_bottom_halo1, n[1], MPI_DOUBLE, next_rank, 2, MPI_COMM_WORLD, &requests[4]);
+                MPI_Irecv(recv_bottom_halo1, n[1], MPI_DOUBLE, prev_rank, 2, MPI_COMM_WORLD, &requests[5]);
+                MPI_Isend(send_bottom_halo2, n[1], MPI_DOUBLE, next_rank, 3, MPI_COMM_WORLD, &requests[6]);
+                MPI_Irecv(recv_bottom_halo2, n[1], MPI_DOUBLE, prev_rank, 3, MPI_COMM_WORLD, &requests[7]);
+                MPI_Waitall(8, requests, MPI_STATUSES_IGNORE);
+            }
+
+            // ===== STEP 2: PARALLEL COMPUTATION (OpenMP) =====
             double ssum = 0.0;
             
-            //PARALLEL GAUSS-SEIDEL with reduction
             #pragma omp parallel reduction(+:ssum)
             {
                 #pragma omp for schedule(dynamic, 4) nowait
-                for (int i = 0; i < n[0]-1; i++) {
-                    int row_base = i * STRIDE_I + 1;
+                for(int i_local = 2; i_local < r_local + 2; i_local++) {
+                    int i_global = r_index + i_local - 2;
+                    int rb_global = i_global * STRIDE_I + 1;
+                    int rb_local = i_local * STRIDE_I + 1;
                     
-                    // Calculate neighbor indices ONCE per i
-                    int inn = (i == 0) ? n[0]-2 : i-1;
-                    int inn2 = (i <= 1) ? ((i == 0) ? n[0]-3 : n[0]-2) : i-2;
-                    int ipp = i+1;
-                    int ipp2 = (i == n[0]-2) ? 1 : i+2;
-                    
-                    int row_inn = inn * STRIDE_I + 1;
-                    int row_ipp = ipp * STRIDE_I + 1;
-                    int row_inn2 = inn2 * STRIDE_I + 1;
-                    int row_ipp2 = ipp2 * STRIDE_I + 1;
-                    int row_last = (n[0]-1) * STRIDE_I + 1;
-                    
-                    bool is_first_row = (i == 0);
-                    
+                    int rlocal_inn = (i_local - 1) * STRIDE_I + 1;
+                    int rlocal_ipp = (i_local + 1) * STRIDE_I + 1;
+                    int rlocal_inn2 = (i_local - 2) * STRIDE_I + 1;
+                    int rlocal_ipp2 = (i_local + 2) * STRIDE_I + 1;
+
                     for (int j = 1; j < n[1]-1; j++) {
                         double phi_new;
                         double res;
                         
                         if (j == 1 || j == n[1]-2) {
-                            // ===== SECOND ORDER STENCIL =====
-                            double rhs = q_data[row_base] - 
-                                    ae_data[row_base]*phi_data[row_ipp] - 
-                                    an_data[row_base]*phi_data[row_base + 1] - 
-                                    as_data[row_base]*phi_data[row_base - 1] - 
-                                    aw_data[row_base]*phi_data[row_inn] - 
-                                    anw_data[row_base]*phi_data[row_inn + 1] - 
-                                    ane_data[row_base]*phi_data[row_ipp + 1] - 
-                                    asw_data[row_base]*phi_data[row_inn - 1] - 
-                                    ase_data[row_base]*phi_data[row_ipp - 1];
+                            // Second order stencil
+                            double rhs = q_data[rb_global] - 
+                                    ae_data[rb_global]*phi_local_data[rlocal_ipp] - 
+                                    an_data[rb_global]*phi_local_data[rb_local + 1] - 
+                                    as_data[rb_global]*phi_local_data[rb_local - 1] - 
+                                    aw_data[rb_global]*phi_local_data[rlocal_inn] - 
+                                    anw_data[rb_global]*phi_local_data[rlocal_inn + 1] - 
+                                    ane_data[rb_global]*phi_local_data[rlocal_ipp + 1] - 
+                                    asw_data[rb_global]*phi_local_data[rlocal_inn - 1] - 
+                                    ase_data[rb_global]*phi_local_data[rlocal_ipp - 1];
                             
-                            res = rhs - ap_data[row_base]*phi_data[row_base];
-                            phi_new = rhs / ap_data[row_base];
+                            res = rhs - ap_data[rb_global]*phi_local_data[rb_local];
+                            phi_new = rhs / ap_data[rb_global];
                             
                         } else {
-                            // ===== FOURTH ORDER STENCIL =====
-                            double rhs = q_data[row_base] - 
-                                    ae_data[row_base]*phi_data[row_ipp] - 
-                                    an_data[row_base]*phi_data[row_base + 1] - 
-                                    as_data[row_base]*phi_data[row_base - 1] - 
-                                    aw_data[row_base]*phi_data[row_inn] - 
-                                    anw_data[row_base]*phi_data[row_inn + 1] - 
-                                    ane_data[row_base]*phi_data[row_ipp + 1] - 
-                                    asw_data[row_base]*phi_data[row_inn - 1] - 
-                                    ase_data[row_base]*phi_data[row_ipp - 1] - 
-                                    aee_data[row_base]*phi_data[row_ipp2] - 
-                                    aww_data[row_base]*phi_data[row_inn2] - 
-                                    annee_data[row_base]*phi_data[row_ipp2 + 2] - 
-                                    anee_data[row_base]*phi_data[row_ipp2 + 1] - 
-                                    asee_data[row_base]*phi_data[row_ipp2 - 1] - 
-                                    assee_data[row_base]*phi_data[row_ipp2 - 2] - 
-                                    anne_data[row_base]*phi_data[row_ipp + 2] - 
-                                    asse_data[row_base]*phi_data[row_ipp - 2] - 
-                                    annw_data[row_base]*phi_data[row_inn + 2] - 
-                                    assw_data[row_base]*phi_data[row_inn - 2] - 
-                                    annww_data[row_base]*phi_data[row_inn2 + 2] - 
-                                    anww_data[row_base]*phi_data[row_inn2 + 1] - 
-                                    asww_data[row_base]*phi_data[row_inn2 - 1] - 
-                                    assww_data[row_base]*phi_data[row_inn2 - 2] - 
-                                    ann_data[row_base]*phi_data[row_base + 2] - 
-                                    ass_data[row_base]*phi_data[row_base - 2];
+                            // Fourth order stencil
+                            double rhs = q_data[rb_global] - 
+                                    ae_data[rb_global]*phi_local_data[rlocal_ipp] - 
+                                    an_data[rb_global]*phi_local_data[rb_local + 1] - 
+                                    as_data[rb_global]*phi_local_data[rb_local - 1] - 
+                                    aw_data[rb_global]*phi_local_data[rlocal_inn] - 
+                                    anw_data[rb_global]*phi_local_data[rlocal_inn + 1] - 
+                                    ane_data[rb_global]*phi_local_data[rlocal_ipp + 1] - 
+                                    asw_data[rb_global]*phi_local_data[rlocal_inn - 1] - 
+                                    ase_data[rb_global]*phi_local_data[rlocal_ipp - 1] - 
+                                    aee_data[rb_global]*phi_local_data[rlocal_ipp2] - 
+                                    aww_data[rb_global]*phi_local_data[rlocal_inn2] - 
+                                    annee_data[rb_global]*phi_local_data[rlocal_ipp2 + 2] - 
+                                    anee_data[rb_global]*phi_local_data[rlocal_ipp2 + 1] - 
+                                    asee_data[rb_global]*phi_local_data[rlocal_ipp2 - 1] - 
+                                    assee_data[rb_global]*phi_local_data[rlocal_ipp2 - 2] - 
+                                    anne_data[rb_global]*phi_local_data[rlocal_ipp + 2] - 
+                                    asse_data[rb_global]*phi_local_data[rlocal_ipp - 2] - 
+                                    annw_data[rb_global]*phi_local_data[rlocal_inn + 2] - 
+                                    assw_data[rb_global]*phi_local_data[rlocal_inn - 2] - 
+                                    annww_data[rb_global]*phi_local_data[rlocal_inn2 + 2] - 
+                                    anww_data[rb_global]*phi_local_data[rlocal_inn2 + 1] - 
+                                    asww_data[rb_global]*phi_local_data[rlocal_inn2 - 1] - 
+                                    assww_data[rb_global]*phi_local_data[rlocal_inn2 - 2] - 
+                                    ann_data[rb_global]*phi_local_data[rb_local + 2] - 
+                                    ass_data[rb_global]*phi_local_data[rb_local - 2];
                             
-                            res = rhs - ap_data[row_base]*phi_data[row_base];
-                            phi_new = rhs / ap_data[row_base];
+                            res = rhs - ap_data[rb_global]*phi_local_data[rb_local];
+                            phi_new = rhs / ap_data[rb_global];
                         }
                         
                         ssum += fabs(res);
-                        phi_data[row_base] = phi_new;
-                        
-                        // Handle periodic boundary
-                        if (is_first_row) {
-                            phi_data[row_last] = phi_new;
-                        }
-                        
-                        row_base++;
-                        row_inn++;
-                        row_ipp++;
-                        row_inn2++;
-                        row_ipp2++;
-                        row_last++;
+                        phi_local_data[rb_local] = phi_new;
+
+                        rb_global++; rb_local++;
+                        rlocal_inn++; rlocal_ipp++; rlocal_inn2++; rlocal_ipp2++;
                     }
                 }
-            } // end parallel region
-            
-            // Compute sumnor only on first iteration
+            } // End parallel region - implicit barrier + reduction
+
+            // ===== STEP 3: MPI CONVERGENCE CHECK (Master thread only) =====
+            double global_ssum = 0.0;
+            MPI_Allreduce(&ssum, &global_ssum, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
             if (iter == 0) {
-                sumnor = (ssum != 0.0) ? ssum : 1.0;
+                sumnor = (global_ssum != 0.0) ? global_ssum : 1.0;
             }
-            
-            double sumav = ssum / sumnor;
-            
-            // Check convergence
+
+            double sumav = global_ssum / sumnor;
+
             if (sumav < tol) {
+                // if (rank == 0) {
+                //     cout << "gauss working" << endl;
+                // }
                 break;
             }
         }
-    }
 
-    void sip9p(blitz::Array<double, 2>& ap, blitz::Array<double, 2>& ae, 
-            blitz::Array<double, 2>& as, blitz::Array<double, 2>& an, 
-            blitz::Array<double, 2>& aw, blitz::Array<double, 2>& ase, 
-            blitz::Array<double, 2>& asw, blitz::Array<double, 2>& ane, 
-            blitz::Array<double, 2>& anw, blitz::Array<double, 2>& phi, 
-            blitz::Array<double, 2>& q){
-        
-        //Extract ALL pointers ONCE
-        double* ap_data = ap.data();
-        double* ae_data = ae.data();
-        double* as_data = as.data();
-        double* an_data = an.data();
-        double* aw_data = aw.data();
-        double* ase_data = ase.data();
-        double* asw_data = asw.data();
-        double* ane_data = ane.data();
-        double* anw_data = anw.data();
-        double* phi_data = phi.data();
-        double* q_data = q.data();
-        
-        // Use class member arrays - get their data pointers
-        double* be = sip_be.data();
-        double* bw = sip_bw.data();
-        double* bs = sip_bs.data();
-        double* bn = sip_bn.data();
-        double* bse = sip_bse.data();
-        double* bne = sip_bne.data();
-        double* bnw = sip_bnw.data();
-        double* bsw = sip_bsw.data();
-        double* bp = sip_bp.data();
-        double* qp = sip_qp.data();
-        double* del = sip_del.data();
-        
-        double tol = 0.75e-2;
-        int maxiter = 100000;
-        double alp = 0.92;
-        double sumnor = 0.0;
-        
-        // PARALLEL INITIALIZATION
-        #pragma omp parallel for schedule(static)
-        for (int i = 0; i < np1 * np2; i++) {
-            be[i] = 0.0;
-            bw[i] = 0.0;
-            bs[i] = 0.0;
-            bn[i] = 0.0;
-            bse[i] = 0.0;
-            bne[i] = 0.0;
-            bnw[i] = 0.0;
-            bsw[i] = 0.0;
-            bp[i] = 0.0;
-            qp[i] = 0.0;
-            del[i] = 0.0;
-        }
-        
-        // ===== FORWARD ELIMINATION - SERIAL (Complex dependencies) =====
-        // This MUST remain serial due to j-direction dependencies
-        for (int i = 0; i < n[0]-1; i++) {
-            int row_base = i * STRIDE_I + 1;
+        // ===== GATHER RESULTS (Master thread only) =====
+        double* send = phi_local_data + 2 * STRIDE_I;
+
+        blitz::Array<int, 1> recvcounts;
+        blitz::Array<int, 1> displs;
+
+        if (rank == 0) {
+            recvcounts.resize(size);
+            displs.resize(size);
+            int* recvcounts_ptr = recvcounts.data();
+            int* displs_ptr = displs.data();
             
-            int inn = (i == 0) ? n[0]-2 : i-1;
-            int row_inn = inn * STRIDE_I + 1;
-            int row_last = (n[0]-1) * STRIDE_I + 1;
-            
-            for (int j = 1; j < n[1]-1; j++) {
-                bsw[row_base] = asw_data[row_base];
-                
-                // Precompute repeated terms
-                double alp_bn_inn = alp * bn[row_inn];
-                double alp_be_prev = alp * be[row_base - 1];
-                
-                bw[row_base] = (aw_data[row_base] + alp*anw_data[row_base] - bsw[row_base]*bn[row_inn - 1]) / 
-                        (1.0 + alp_bn_inn);
-                
-                bs[row_base] = (as_data[row_base] + alp*ase_data[row_base] - bsw[row_base]*be[row_inn - 1]) / 
-                        (1.0 + alp_be_prev);
-                
-                double ad = anw_data[row_base] + ase_data[row_base] - bs[row_base]*be[row_base - 1] - bw[row_base]*bn[row_inn];
-                
-                bp[row_base] = ap_data[row_base] - alp*ad - bs[row_base]*bn[row_base - 1] - bw[row_base]*be[row_inn] - 
-                        bsw[row_base]*bne[row_inn - 1];
-                
-                double inv_bp = 1.0 / bp[row_base];  // Precompute division
-                
-                bn[row_base] = (an_data[row_base] + alp*anw_data[row_base] - alp_bn_inn*bw[row_base] - 
-                        bw[row_base]*bne[row_inn]) * inv_bp;
-                
-                be[row_base] = (ae_data[row_base] + alp*ase_data[row_base] - alp_be_prev*bs[row_base] - 
-                        bs[row_base]*bne[row_base - 1]) * inv_bp;
-                
-                bne[row_base] = ane_data[row_base] * inv_bp;
-                
-                // Handle periodic boundary
-                if (i == 0) {
-                    bsw[row_last] = bsw[row_base];
-                    bn[row_last] = bn[row_base];
-                    bs[row_last] = bs[row_base];
-                    bne[row_last] = bne[row_base];
-                    be[row_last] = be[row_base];
-                    bw[row_last] = bw[row_base];
-                    bp[row_last] = bp[row_base];
-                }
-                
-                row_base++;
-                row_inn++;
-                row_last++;
+            int offset = 0;
+            for (int p = 0; p < size; p++) {
+                int p_r_l = n0_local + (p < remainder ? 1 : 0);
+                recvcounts_ptr[p] = p_r_l * n[1];
+                displs_ptr[p] = offset;
+                offset += recvcounts_ptr[p];
             }
         }
 
-        // ===== MAIN ITERATION LOOP =====
-        for (int iter = 0; iter < maxiter; iter++) {
-            double ssum = 0.0;
-            
-            // ===== FORWARD SWEEP - PARTIALLY PARALLEL =====
-            // Parallelize over i, but j loop remains serial due to dependencies
-            #pragma omp parallel for reduction(+:ssum) schedule(dynamic)
-            for (int i = 0; i < n[0]-1; i++) {
-                int row_base = i * STRIDE_I + 1;
-                
-                int inn = (i == 0) ? n[0]-2 : i-1;
-                int ipp = i+1;
-                int row_inn = inn * STRIDE_I + 1;
-                int row_ipp = ipp * STRIDE_I + 1;
-                int row_last = (n[0]-1) * STRIDE_I + 1;
-                
-                for (int j = 1; j < n[1]-1; j++) {
-                    // Compute residual directly (no array storage)
-                    double res = q_data[row_base] - ap_data[row_base]*phi_data[row_base] - 
-                            ae_data[row_base]*phi_data[row_ipp] - an_data[row_base]*phi_data[row_base + 1] - 
-                            as_data[row_base]*phi_data[row_base - 1] - aw_data[row_base]*phi_data[row_inn] - 
-                            anw_data[row_base]*phi_data[row_inn + 1] - ane_data[row_base]*phi_data[row_ipp + 1] - 
-                            asw_data[row_base]*phi_data[row_inn - 1] - ase_data[row_base]*phi_data[row_ipp - 1];
-                    
-                    ssum += fabs(res);
-                    
-                    // Forward substitution
-                    qp[row_base] = (res - bs[row_base]*qp[row_base - 1] - 
-                            bw[row_base]*qp[row_inn] - bsw[row_base]*qp[row_inn - 1]) / bp[row_base];
-                    
-                    // Handle periodic boundary
-                    if (i == 0) {
-                        qp[row_last] = qp[row_base];
-                    }
-                    
-                    row_base++;
-                    row_inn++;
-                    row_ipp++;
-                    row_last++;
-                }
-            }
-            
-            // Compute sumnor only on first iteration
-            if (iter == 0) {
-                sumnor = (ssum != 0.0) ? ssum : 1.0;
-            }
-            
-            double sumav = ssum / sumnor;
-            
-            // ===== BACKWARD SWEEP - PARALLEL =====
-            #pragma omp parallel for schedule(static)
-            for (int i = n[0]-2; i >= 0; i--) {
-                int row_base = i * STRIDE_I + n[1] - 2;
-                int ipp = i+1;
-                int row_ipp = ipp * STRIDE_I + n[1] - 2;
-                bool is_periodic = (i == 0);
-                int row_last = (n[0]-1) * STRIDE_I + n[1] - 2;
-                
-                for (int j = n[1]-2; j >= 1; j--) {
-                    // Backward substitution
-                    del[row_base] = qp[row_base] - bn[row_base]*del[row_base + 1] - 
-                            be[row_base]*del[row_ipp] - bne[row_base]*del[row_ipp + 1];
-                    
-                    phi_data[row_base] += del[row_base];
-                    
-                    // Handle periodic boundary
-                    if (is_periodic) {
-                        phi_data[row_last] = phi_data[row_base];
-                    }
-                    
-                    row_base--;
-                    row_ipp--;
-                    row_last--;
-                }
-            }
+        MPI_Gatherv(send, r_local * n[1], MPI_DOUBLE, phi_data, 
+                    recvcounts.data(), displs.data(), MPI_DOUBLE, 
+                    0, MPI_COMM_WORLD);
 
-            // Check convergence
-            if (sumav < tol) {
-                break;
-            }  
+        // Handle periodic boundary on rank 0
+        if (rank == 0) {
+            double* last_row = phi_data + (n[0] - 1) * n[1];
+            double* first_row = phi_data;
+            
+            for (int j = 0; j < n[1]; j++) {
+                last_row[j] = first_row[j];
+            }
         }
+
+        // Broadcast complete phi to all ranks
+        MPI_Bcast(phi_data, n[0] * n[1], MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
 };
 
-int main() {
+int main(int argc, char** argv) {
+
     auto start = std::chrono::high_resolution_clock::now();
     clock_t cpu_start = clock();
+
+    // ===== STEP 1: Initialize MPI with thread support =====
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
     
+    if (provided < MPI_THREAD_FUNNELED) {
+        printf("ERROR: MPI doesn't support threading!\n");
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    /// SET NUMBER OF THREADS TO MAX AVAILABLE
+    // int num_threads = omp_get_max_threads();
+    int num_threads = 2;
+    // cout << "Num_threads:" << num_threads << endl;
+    omp_set_num_threads(num_threads);
+
+    // ===== TEST: Print active threads =====
+    if (rank == 0) {
+        printf("Before parallel region: %d threads\n", omp_get_num_threads());
+        
+        #pragma omp parallel
+        {
+            #pragma omp master
+            {
+                printf("Inside parallel region: %d threads\n", omp_get_num_threads());
+            }
+            
+            int tid = omp_get_thread_num();
+            printf("Thread %d is active!\n", tid);
+        }
+        
+        printf("After parallel region: %d threads\n", omp_get_num_threads());
+    }
+
     Solver solver;
+
     solver.timeLoop();
+
+    // Finalize MPI
+    MPI_Finalize();
 
     clock_t cpu_end = clock();
     double cpu_time = double(cpu_end - cpu_start) / CLOCKS_PER_SEC;
     std::cout << "CPU Time: " << cpu_time << "s\n";
 
+    
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     // start = std::chrono::high_resolution_clock::now();
